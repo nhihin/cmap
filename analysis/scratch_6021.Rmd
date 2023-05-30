@@ -1,0 +1,517 @@
+---
+title: "Scratch: Testing 6021"
+author: "Nhi Hin"
+date: "2023-02-06"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+## Summary
+
+- This notebook will test the preparatory steps of CMap 3->4 and 4->5 using the 6021 dataset. 
+
+More info: 
+- Level 3 to Level 4: https://github.com/cmap/cmapM/blob/master/%2Bcmapm/%40Pipeline/level3_to_level4.m
+- Level 4 to Level 5: https://github.com/cmap/cmapM/blob/master/%2Bcmapm/%40Pipeline/level4_to_level5.m
+
+**Main Steps of this workflow**:
+
+1. Loading Seurat object and conversion to SCE, in order to create pseudobulk samples.
+2. Subset out separate datasets for each cell type + treatment combination. 
+3. Calculate Robust z-scores for each of the datasets in step 2. (Step 3->4 from CMap documentation)
+4. Calculate weighted average of z-scores across replicates for each dataset. 
+5. Compute the difference of step 4 between Treatment and Control. 
+6. Export results
+
+## Packages
+
+```{r load-packages}
+library(dplyr)
+library(readr)
+library(magrittr)
+library(Seurat)
+library(SingleCellExperiment)
+library(scater)
+library(ggplot2)
+library(cowplot)
+library(here)
+library(cmapR)
+```
+
+## Load Data
+
+```{r}
+seurat <- readRDS("/mnt/home/alkahest.com/dleone/Documents/Analyses/alkahest/sci_app/post_2hrs/2021-10-14_post_2hrs_tg08_rerun_2022/seurat/2021-10-14_post_2hrs_tg08_rerun_2022_filtered.alkahest.main.obj.Rds")
+```
+
+## PATCH: Load sample metadata from up-to-date samplesheet
+
+```{r}
+samplesheet_path <- "/mnt/home/alkahest.com/dleone/Documents/Analyses/library_processors/nextera_processors/FACS_annotations/FACS_10x_samplesheet_2022-10-27.tsv"
+
+samplesheet <- readr::read_tsv(samplesheet_path)
+
+seurat@meta.data %<>%
+  tibble::rownames_to_column("barcode") %>% 
+  .[, c("barcode", "sample_ID", "FACS_date", colnames(seurat@meta.data)[42:66])] %>% 
+  left_join(samplesheet, by = c("sample_ID", "FACS_date")) %>% 
+  tibble::column_to_rownames("barcode")
+
+# Patch for age (relabel mislabelled age samples)
+seurat@meta.data %<>%
+  tibble::rownames_to_column("barcode") %>%
+  dplyr::mutate(age_binary = case_when(
+    seq_batch == "tg07" & age_prep == "3.2" ~ "young",
+    TRUE ~ age_binary
+  )) %>%
+  tibble::column_to_rownames("barcode")
+```
+
+- Add in pooling column
+
+```{r}
+grouping_column <- "treatment_label"
+animalToPool <- seurat@meta.data %>%
+  as.data.frame %>%
+  dplyr::select(animal_ID, .data[[grouping_column]], seq_batch) %>%
+  dplyr::distinct() %>%
+  set_rownames(NULL) %>%
+  dplyr::arrange(.data[[grouping_column]]) 
+
+nanimals <- animalToPool$animal_ID %>%
+  lapply(function(x){
+    as.list(strsplit(x[[1]], ","))[[1]] %>% length()
+  })
+
+animalToPool$n_animals <- nanimals
+
+
+ngroups <- animalToPool[[grouping_column]] %>% table %>% as.list()
+
+animalToPool%<>%
+  dplyr::mutate(biol_rep = paste0(c(1:ngroups$aged, 1:ngroups$young)))
+
+animalToPool$pool_id <- paste0(animalToPool[[grouping_column]], "_",
+                               "pool", 
+                               animalToPool$biol_rep,
+                               "_n",
+                               animalToPool$n_animals)
+
+
+seurat@meta.data %<>% 
+  tibble::rownames_to_column("barcode") %>%
+  left_join(animalToPool, by = c("animal_ID", grouping_column, "seq_batch")) %>% 
+  tibble::column_to_rownames("barcode")
+
+seurat@meta.data$pool_id %>% table
+```
+
+
+
+
+
+
+## Build SCE Object from Seurat Object
+
+```{r convert-seurat-sce}
+counts <- GetAssayData(object = seurat,
+                      slot = "counts",
+                      assay = "RNA")
+
+sce <- SingleCellExperiment(assays = list(counts = counts),
+                           colData = seurat@meta.data)
+
+sce
+rm(seurat)
+rm(counts)
+gc()
+```
+
+
+## Compute log-normalized counts
+
+```{r}
+sf <- 2^rnorm(ncol(sce))
+sf <- sf/mean(sf)
+normcounts(sce) <- t(t(counts(sce))/sf)
+dim(normcounts(sce))
+logcounts(sce) <- log2(normcounts(sce)+1)
+dim(logcounts(sce))
+```
+
+### Initial filter: Filter out low exp genes
+
+```{r filtering}
+# TODO: Filtering by log-normalized values
+
+# For now, filtering by counts
+# Remove genes that are expressed in less than 10 cells
+sce <- sce[rowSums(counts(sce) > 1) >= 10, ]
+```
+
+
+## Aggregate cells into pseudobulk samples
+
+```{r}
+# Named vector of cluster names
+cluster_ids <- purrr::set_names(levels(as.factor(sce$Major_celltype)))
+
+# Total number of clusters
+nc <- length(cluster_ids)
+
+# Named vector of sample names
+sample_ids <- purrr::set_names(levels(as.factor(sce$pool_ID)))
+
+# Total number of samples 
+## 11
+ns <- length(sample_ids)
+
+# Generate sample level metadata
+
+## Determine the number of cells per sample
+table(sce$sample_ID)
+
+## Turn class "table" into a named vector of cells per sample
+n_cells <- table(sce$sample_ID) %>%  as.vector()
+names(n_cells) <- names(table(sce$sample_ID))
+
+## Match the named vector with metadata to combine it
+m <- match(names(n_cells), sce$sample_ID)
+
+## Create the sample level metadata by selecting specific columns
+ei <- data.frame(colData(sce)[m, ], 
+                  n_cells, row.names = NULL) %>% 
+                dplyr::select("sample_ID",  "n_cells")
+ei %>%
+  dplyr::arrange(sample_ID)
+```
+
+```{r}
+# Aggregate the counts per sample_id and cluster_id
+
+# Subset metadata to only include the cluster and sample IDs to aggregate across
+groups <- colData(sce)[, c("Major_celltype", "sample_ID")]
+groups$sample_ID <- factor(groups$sample_ID)
+
+# Aggregate across cluster-sample groups
+# Each row corresponds to aggregate counts for a cluster-sample combo
+pb <- Matrix.utils::aggregate.Matrix(t(logcounts(sce)), 
+                       groupings = groups, fun = "sum") 
+
+class(pb)
+dim(pb)
+pb[1:8, 1:8]
+```
+
+## Split aggregated matrix by cell type
+
+- Not every cluster is present in all samples; create a vector that represents how to split samples
+
+```{r}
+splitf <- sapply(
+  stringr::str_split(rownames(pb), 
+                     pattern = "_", 
+                     n = 2), 
+  `[`, 1)
+```
+
+- Turn into a list and split the list into components for each cluster and transform, so rows are genes and columns are samples and make rownames as the sample IDs
+
+
+
+```{r}
+pb <- split.data.frame(pb,
+                       factor(splitf)) 
+
+pb %<>%
+  lapply(function(x){
+    sample_names <-
+      rownames(x) %>% gsub(
+        x = .,
+        pattern = "^.*_(FACS.*)$", replacement = "\\1"
+      )
+    set_colnames(t(x), sample_names)
+  })
+
+class(pb)
+lapply(pb, dim)
+
+lapply(pb, colnames)
+
+pb$astrocyte %>% head
+colnames(pb$astrocyte)
+```
+
+### Check number of cells per sample for each cell type
+
+```{r}
+options(width = 100)
+table(sce$Major_celltype, sce$sample_ID)
+```
+
+## Make map of column names to include both sample_ID and treatment
+
+```{r}
+map_df <- colData(sce) %>% 
+  as.data.frame %>% 
+  dplyr::group_by(sample_ID, treatment_label) %>%
+  dplyr::summarise(n=n()) %>%
+  dplyr::mutate(sample_treatment = paste0(sample_ID, "_", treatment_label))
+
+map_df
+```
+
+## Rename column names & separate out groups (Treatment and Control)
+
+```{r}
+for(celltype in names(pb)){
+  oldColnames <- colnames(pb[[celltype]])
+  newColnames <- data.frame(sample_ID = oldColnames) %>%
+    dplyr::left_join(map_df, by = "sample_ID") %>%
+    dplyr::pull(sample_treatment)
+  
+  colnames(pb[[celltype]]) <- newColnames
+}
+
+vehs <- list()
+ppfs <- list()
+
+for(celltype in names(pb)){
+  vehs[[celltype]] <- pb[[celltype]] %>% 
+  as.data.frame %>%
+  dplyr::select(contains("Vehicle"))
+
+ppfs[[celltype]] <- pb[[celltype]] %>% 
+  as.data.frame %>%
+  dplyr::select(contains("Pl-47615"))
+}
+```
+
+## Convert log-norm counts to z-scores
+
+```{r}
+zscores_veh <- list()
+zscores_ppf <- list()
+
+capLargeZscores <- function(x){
+  x[x > 10] <- 10
+  x[x < -10] <- -10
+  return(x)
+}
+
+for(celltype in names(vehs)){
+  zscores_veh[[celltype]] <- apply(vehs[[celltype]],
+                                   2,
+                                   cmapR::robust_zscore)
+  
+  zscores_ppf[[celltype]] <- apply(ppfs[[celltype]],
+                                   2,
+                                   cmapR::robust_zscore)
+  
+  zscores_veh[[celltype]] <- apply(zscores_veh[[celltype]], 2, capLargeZscores)
+zscores_ppf[[celltype]] <- apply(zscores_ppf[[celltype]], 2, capLargeZscores)
+  
+}
+
+```
+
+## Distil (weighted average of z-scores across replicates)
+
+```{r}
+average_zscore_veh <- list()
+average_zscore_ppf <- list()
+
+for(celltype in names(zscores_veh)){
+  average_zscore_veh[[celltype]] <- distil(zscores_veh[[celltype]], dimension = "col")
+  
+  average_zscore_ppf[[celltype]] <- distil(zscores_ppf[[celltype]], dimension = "col")
+}
+```
+
+## Difference between Treatment and Control
+
+```{r}
+diff_treatment_and_control <- list()
+for(celltype in names(average_zscore_veh)){
+  diff_treatment_and_control[[celltype]] <- average_zscore_ppf[[celltype]]$values - average_zscore_veh[[celltype]]$values
+}
+
+diff_treatment_and_control$astrocyte %>% summary()
+diff_treatment_and_control %>% lapply(length)
+```
+
+## Combine everything into giant matrix
+
+```{r}
+db <- bind_cols(diff_treatment_and_control) %>%
+  as.data.frame
+rownames(db) <- rownames(sce)
+colnames(db) <- paste0("CNS_ppf_vs_veh_", colnames(db)) %>%
+  gsub(x = ., pattern = " |-", replacement = "_")
+```
+
+## Convert Ensembl IDs to entrez IDs and mouse to human
+
+- After encountering an error while running Ensembl IDs with the queryl1k tool, this may be because they aren't entrez Ids. 
+
+- While we are at it, need to convert all into human Entrez ids. Currently they are in mouse IDs. 
+
+```{r prepare-mapping-datafram}
+hs_to_mm_ensembl <- uatools::get_scaffold("hs_to_mm_orthologs")
+
+human_ensembl_to_entrez  <- clusterProfiler::bitr(
+  geneID = hs_to_mm_ensembl$human_gene_id,
+  fromType = "ENSEMBL",
+  toType = "ENTREZID",
+  OrgDb = 'org.Hs.eg.db') %>%
+  as.data.frame %>%
+  set_colnames(c("human_gene_id", "human_entrezid"))
+
+mm_ensembl_to_human_entrez <- hs_to_mm_ensembl %>%
+  as.data.frame %>%
+  left_join(human_ensembl_to_entrez,
+            by = "human_gene_id",
+            multiple = "all") %>%
+  dplyr::filter(!is.na(human_entrezid)) %>%
+  dplyr::distinct(human_entrezid, mouse_gene_id)
+
+```
+
+```{r convert-ids-in-countmatrix}
+db_entrez <- db %>%
+  tibble::rownames_to_column("mouse_gene_id") %>%
+  dplyr::left_join(mm_ensembl_to_human_entrez,
+                   multiple = "all") %>%
+  dplyr::select(-mouse_gene_id)
+
+db_entrez <- plyr::ddply(db_entrez,
+                         "human_entrezid",
+                         plyr::numcolwise(sum))
+
+db_entrez <- db_entrez %>%
+  dplyr::filter(!is.na(human_entrezid)) %>%
+  tibble::column_to_rownames("human_entrezid") 
+```
+
+- Export out a text-delim version of this matrix for testing with `signatureSearch` (see `scratch_signatureSearch.Rmd`.)
+
+```{r}
+db_entrez %>% 
+  readr::write_tsv(here("output", 
+                        "db_entrez_6021.txt"))
+```
+
+
+## Convert to GCT and calculate ranks for each column
+
+- Columns are ranked by the absolute score (weighted average z-score). 
+
+```{r}
+score_6021 <- new("GCT", mat = as.matrix(db))
+score_6021_entrez <- new("GCT", mat = as.matrix(db_entrez))
+rank_6021 <- rank_gct(score_6021, dim="col")
+rank_6021_entrez <- rank_gct(score_6021_entrez,
+                             dim = "col")
+
+# Add back the row and column ids to the matrix
+rownames(rank_6021_entrez@mat) <- rank_6021_entrez@rid
+
+colnames(rank_6021_entrez@mat) <- rank_6021_entrez@cid
+```
+
+## Export GCTX files for running with the Docker containerr
+
+```{r eval=FALSE}
+# write_gctx(score_6021, here("output", "scratch_score_6021"))
+# write_gctx(rank_6021, here("output", "scratch_rank_6021"))
+
+write_gctx(score_6021_entrez, here("output", "scratch_score_6021_entrez"))
+write_gctx(rank_6021_entrez, here("output", "scratch_rank_6021_entrez"))
+```
+
+## Prepare siginfo (rank metadata) file
+
+The other file which is required to run the query_l1k tool on Docker is a tab separated text file called siginfo.txt. See `scratch/siginfo.Rmd` for more details on what this file is. 
+
+To summarise:
+
+siginfo.txt is an input to the queryl1k functionality of CMap.
+
+In the documentation, it is an input in the following flag:
+
+> `--sig_meta` SIG_META : Signature metadata for each column in the score matrix. This is a required field. The first field must match the column id field in the score matrix. The following fields are required [sig_id, is_ncs_sig, is_null_sig]. In addition fields specified for ncs_group and exemplar_field arguments must be present.
+
+
+We will now prepare one of these files for the purposes of testing the 6021 dataset we have generated in terms of score and rank. 
+
+```{r}
+siginfo_6021 <- data.frame(sig_id = score_6021@cid) %>%
+  dplyr::mutate(is_null_sig = 0) %>%
+  dplyr::mutate(is_ncs_sig = 1) %>%
+  dplyr::mutate(is_exemplar_sig = 1)
+
+siginfo_6021_entrez <- data.frame(sig_id = score_6021_entrez@cid) %>%
+  dplyr::mutate(is_null_sig = 0) %>%
+  dplyr::mutate(is_ncs_sig = 1) %>%
+  dplyr::mutate(is_exemplar_sig = 1)
+```
+
+
+```{r eval=FALSE}
+siginfo_6021 %>% readr::write_tsv(here("output", "scratch_siginfo_6021.txt"))
+
+siginfo_6021_entrez  %>% readr::write_tsv(here("output", "scratch_siginfo_6021_entrez.txt"))
+```
+
+## Next steps
+
+- Run the query_l1k_tool on Docker using the score, rank, and siginfo files generated. 
+
+- Next step will then involve importing in the output to look at it in this notebook. 
+
+## error message
+
+```{r eval=FALSE, engine='txt'}
+> /cmap/tools/sig_tools/run_sig_queryl1k_tool.sh /opt/mcr/v84 --up /datasets/queries_alkahest/overall_DEGs_entrez_ADctrl_UP_list.gmt --down /datasets/queries_alkahest/overall_DEGs_entrez_ADctrl_DOWN_list.gmt --score /mnt/home/alkahest.com/nhin/Projects/cmap_internal/output/scratch_score_6021_n20x19120.gctx --rank /mnt/home/alkahest.com/nhin/Projects/cmap_internal/output/scratch_rank_6021_n20x19120.gctx --sig_meta /mnt/home/alkahest.com/nhin/Projects/cmap_internal/output/scratch_siginfo_6021.txt --max_col 50000 --create_subdir 0 --out /results/akst_queries_6021_test
+------------------------------------------
+Setting up environment variables
+---
+LD_LIBRARY_PATH is .:/opt/mcr/v84/runtime/glnxa64:/opt/mcr/v84/bin/glnxa64:/opt/mcr/v84/sys/os/glnxa64:/opt/mcr/v84/sys/opengl/lib/glnxa64
+Error using mortar.sigtools.SigQueryl1k/checkArgs_ (line 6)
+Rank not specified
+
+Error in mortar.base.SigClass/parseArgs_ (line 241)
+
+
+
+Error in mortar.base.SigClass/parseArgs (line 62)
+
+
+
+Error in mortar.base.SigClass/run (line 68)
+
+
+
+Error in sig_queryl1k_tool (line 6)
+```
+
+- There is a problem with the rank file. Let's compare our rank file to the one which works from the demo.
+
+- Import one from demo
+
+```{r}
+working_rank <- cmapR::parse_gctx("~/Projects/workshop_tutorial/sigtool_demo/datasets/l1000/m2.subset.10k/rank.bing_n10000x10174.gctx")
+
+colnames(working_rank@mat) %>% head
+rownames(working_rank@mat) %>% head
+```
+
+- Rownames are entrez gene IDs while column names are `sig_id` from the siginfo table. 
+
+```{r}
+rank_6021@mat %>% colnames %>% head
+rank_6021@mat %>% rownames %>% head
+```
+
+- The 

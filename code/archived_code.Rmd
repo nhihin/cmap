@@ -1,0 +1,165 @@
+##### Edges
+
+An edge is the following:
+
+  - Connects a drug to a target gene
+
+```{r}
+edges <- full_table %>%
+  dplyr::filter(sig == TRUE
+                #,
+                # cell == "HUVEC"
+  ) %>%
+  dplyr::select(pert_iname, t_gn_sym, cell) %>%
+  tidyr::separate_rows(t_gn_sym, sep = ";") %>%
+  dplyr::mutate(t_gn_sym = stringr::str_trim(t_gn_sym)) %>%
+  magrittr::set_colnames(c("source", "target", "cell"))
+
+moa_drugs <- full_table %>%
+  dplyr::filter(sig == TRUE) %>%
+  dplyr::select(pert_iname, MOAss) %>%
+  tidyr::separate_rows(MOAss, sep = ";") %>%
+  dplyr::mutate(MOAss = stringr::str_trim(MOAss))  %>%
+  set_colnames(c("pert_iname", "MOA"))%>%
+  dplyr::filter(!is.na(MOA)) %>%
+  dplyr::distinct(.keep_all=T)
+
+
+drugsThatAreMtorInhibitors <- full_table %>%
+  dplyr::filter(sig == TRUE) %>%
+  dplyr::filter(grepl("MTOR", MOAss)) %>%
+  dplyr::select(pert_iname) %>%
+  dplyr::distinct() %>%
+  dplyr::mutate(isMTORInhibitor = TRUE)
+
+
+nodes <- data.frame(id = c(unique(edges$source),
+                           unique(edges$target)),
+                    type = c(rep("drug", length(unique(edges$source))),
+                             rep("gene", length(unique(edges$target)))
+                    )
+) %>%
+  dplyr::left_join(drugsThatAreMtorInhibitors, by = c("id"="pert_iname")) %>%
+  dplyr::mutate(isMTORInhibitor = case_when(
+    is.na(isMTORInhibitor) ~ FALSE,
+    TRUE ~ TRUE
+  ))%>%
+  left_join(moa_drugs, by = c("id"="pert_iname"), multiple = "all")
+```
+
+
+
+
+### Significant Results
+
+```{r}
+sigResults <- queries_against_lincs2 %>%
+  lapply(function(x){
+    x@result %>%
+      dplyr::filter(!is.na(t_gn_sym),
+                    trend == "up",
+                    WTCS_FDR < 0.05,
+                    NCSct > 0.8) %>%
+      dplyr::arrange(desc(NCSct))
+  })
+
+lapply(sigResults, function(x){x%>%nrow()})
+
+ueries_against_lincs2$macrophage@result %>% dplyr::filter(!is.na(t_gn_sym), trend == "up", WTCS_FDR < 0.05) %>% View
+```
+
+### Try to look for cell type agnostic drugs
+
+```{r}
+queries_all <- sigResults %>%
+  bind_rows(.id = "celltype")
+
+queries_all2 <- queries_all %>%
+  dplyr::group_by(celltype, pert_iname) %>%
+  dplyr::rename(query_celltype = celltype) %>%
+  dplyr::summarise(
+    n=n(),
+    mean_NCS_across_sig_LINCS2_cell_lines=mean(NCSct),
+    mean_FDR_across_sig_LINCS2_cell_lines = mean(WTCS_FDR)
+  ) %>%
+  dplyr::rename(n_sig_LINCS2_cell_lines = n) %>%
+  dplyr::arrange(pert_iname, desc(n_sig_LINCS2_cell_lines)) %>%
+  dplyr::group_by(pert_iname) %>%
+  dplyr::mutate(sum_ranking_purposes = sum(mean_NCS_across_sig_LINCS2_cell_lines)) %>%
+  dplyr::arrange(desc(sum_ranking_purposes))  %>%
+  left_join(lincs_pert_info2 %>% as.data.frame %>%
+              dplyr::select(pert_iname, MOA, t_gn_sym, indication_class, action_type, max_phase ) %>% dplyr::distinct(.keep_all=TRUE))
+
+View(queries_all2)
+
+queries_all2 %>% saveRDS(here("output", "main_cns_result.rds"))
+
+```
+
+### Filter endothelial only
+
+```{r}
+endo_results <- queries_all2 %>%
+  dplyr::filter(query_celltype == "endothelial")
+```
+
+
+
+#### Functional enrichment analysis
+
+```{r}
+drugs_hepatocyte <-query_against_customdb_hepatocyte2$PPF_vs_Veh_NC_0hr %>%
+  result %>%
+  as.data.frame %>%
+  dplyr::filter(WTCS_FDR < 0.05) %>%
+  dplyr::pull(pert) %>%
+  unique
+# Gene ontology
+go_tea <- tsea_dup_hyperG(drugs = drugs_hepatocyte,
+                          universe="Default",
+                          type = "GO",
+                          ont = "MF",
+                          pvalueCutoff = 0.05,
+                          pAdjustMethod = "BH",
+                          qvalueCutoff = 0.1,
+                          minGSSize = 10,
+                          maxGSSize = 500)
+
+result(go_tea) %>% View
+
+dtnetplot(drugs = drugs(go_tea),
+          set = "GO:0004674",
+          ont = "MF")
+
+
+```
+
+- KEGG
+
+```{r}
+kegg_tea  <- tsea_dup_hyperG(drugs = drugs_hepatocyte,
+                             universe="Default",
+                             type = "KEGG",
+                             pvalueCutoff = 0.5,
+                             pAdjustMethod = "BH",
+                             qvalueCutoff = 0.1,
+                             minGSSize = 10,
+                             maxGSSize = 500)
+
+result(kegg_tea) %>% View()
+```
+
+- Reactome
+
+```{r}
+reactome_tea  <- tsea_dup_hyperG(drugs = drugs_hepatocyte,
+                                 type = "Reactome",
+                                 pvalueCutoff = 0.5,
+                                 pAdjustMethod = "BH",
+                                 qvalueCutoff = 0.5,
+                                 readable=TRUE)
+
+result(reactome_tea) %>% View
+```
+
+

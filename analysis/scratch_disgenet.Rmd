@@ -1,0 +1,364 @@
+---
+title: "scratch_disgenet"
+author: "Nhi Hin"
+date: "2023-03-20"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+## Load Packages
+
+```{r}
+library(disgenet2r)
+library(Seurat)
+library(dplyr)
+library(magrittr)
+library(readr)
+library(tibble)
+library(ggplot2)
+library(SingleCellExperiment)
+library(scater)
+library(here)
+library(rhdf5)
+library(signatureSearch)
+library(signatureSearchData)
+library(HDF5Array)
+library(ExperimentHub)
+```
+
+## API Key
+
+```{r}
+Sys.setenv(DISGENET_API_KEY = "030b2e02ff356ed135085de8c366cbbacb3bf9a4")
+```
+
+## Summary of this notebook
+
+- Given results table from running CMap through *signatureSearch*, we need a way to interpret the results in terms of enriched indications. 
+- In this notebook, we perform over-representation analysis using DisGeNet's disease-gene associations. 
+
+## Import data
+
+### CMap Results (PPF vs Veh, Endothelial cells, vs. HUVEC LINCS2)
+
+See `prepare_6021_data_for_querying_LINCS2.Rmd` for details. 
+
+```{r}
+full_table <- readRDS(here("data", "full_table_endo.rds"))
+colnames(full_table)
+```
+
+## Neaten up table 
+
+- Retain relevant columns
+- Separate out gene symbols, one on each row. 
+
+**Note**: Below, here we are focusing on the HUVEC cell line as this is most comparable to endothelial cells from the transcriptlomics data. 
+
+```{r}
+full_table_tidy <- full_table %>%
+  dplyr::filter(cell == "HUVEC") %>%
+  dplyr::select(pert, pert_iname, 
+                starts_with("WTC"),
+                starts_with("NCS"),
+                MOAss,
+                t_gn_sym,
+                sig)   %>%
+  tidyr::separate_rows(t_gn_sym, sep = ";") %>%
+  dplyr::mutate(t_gn_sym =  stringr::str_trim(t_gn_sym)) 
+nrow(full_table_tidy)
+
+head(full_table_tidy)
+```
+
+- Number of gene targets per drug:
+
+```{r}
+full_table_tidy %>%
+  dplyr::distinct(pert_iname, t_gn_sym) %>%
+  dplyr::group_by(pert_iname) %>%
+  dplyr::summarise(n=n()) %>%
+  dplyr::pull(n) %>%
+  hist(breaks = 50)
+```
+
+-Benoit: what kinds of drugs have 20> targets
+
+```{r}
+drugswith20targets <- full_table_tidy %>%
+  dplyr::distinct(pert_iname, t_gn_sym) %>%
+  dplyr::group_by(pert_iname) %>%
+  dplyr::summarise(n=n()) %>%
+  dplyr::filter(n >= 20)
+
+
+```
+
+## Filter sig results, extract gene symbols
+
+```{r}
+sig_res <- full_table_tidy %>%
+  dplyr::filter(sig == TRUE) 
+  
+
+sig_res %>%
+  dplyr::distinct(pert_iname, t_gn_sym) %>% 
+  dplyr::group_by(pert_iname) %>%
+  dplyr::summarise(n=n()) %>% .$n %>%
+  hist(breaks=50)
+
+  sig_res <- sig_res%>% .$t_gn_sym %>% unique()
+sig_res
+length(sig_res)
+```
+
+
+
+## Enrichment (over-representation) analysis
+
+- This will simply be performed with `disease_enrichment` function already implemented in DisGeNet's R package. 
+
+```{r}
+res_enrich <- disease_enrichment(entities = sig_res)
+
+summaryPlot <- plot( res_enrich, class = "Enrichment", count =3,  cutoff= 0.05, nchars=70)
+
+summaryPlot %>% ggsave(here("output", "summaryPlot_disgenet.pdf"),
+                       . ,width = 11, height = 20, units = "in")
+
+res_table <- res_enrich@qresult %>%
+  dplyr::mutate(sig = FDR <= 0.05)
+View(res_table)
+res_table$sig %>% table
+
+sig_table <- res_table %>%
+  dplyr::filter(sig == TRUE)
+
+nrow(sig_table)
+```
+
+
+```{r}
+# Summary plot of number of disease classes in sig results
+summaryPlot2 <- sig_table %>%
+  tidyr::separate_rows(disease_class_name, sep = ";") %>%
+  dplyr::filter(!is.na(disease_class_name)) %>%
+  dplyr::mutate(disease_class_name = stringr::str_trim(disease_class_name)) %>%
+  dplyr::distinct(Description, disease_class_name) %>%
+  dplyr::group_by(disease_class_name) %>%
+  dplyr::summarise(n=n()) %>%
+  dplyr::arrange(desc(n)) %>%
+  ggplot(aes(x = n, y = forcats::fct_reorder(disease_class_name, n)),
+         fill = disease_class_name) +
+  geom_bar(stat = "identity") +
+  labs(x = "Number of significant diseases in each disease class",
+       y = "Disease Class from DisGeNet Database")+
+  cowplot::theme_cowplot()
+summaryPlot2
+ggsave(here("output", "summaryPlot2_disgenet.pdf"), plot = summaryPlot2,
+       height = 9, width = 11, units = "in")
+View(sig_table)
+```
+
+
+```{r}
+res_table %>% readr::write_csv(here("output", "DisGeNet_TargetGene_ORA_All.csv"))
+sig_table %>% readr::write_csv(here("output", "DisGeNet_TargetGene_ORA.csv"))
+```
+
+## Interpretation of gene-drug associations
+
+- Create table of gene - drug pairs from the genes which were from significant drugs (based on CMap analysis). 
+
+```{r}
+genes_df <- data.frame(gene = sig_res)
+
+disease_df <- res_table %>%
+  dplyr::select(ID, Description, shared_symbol) %>%
+  dplyr::rename(gene = shared_symbol) %>%
+  tidyr::separate_rows(gene, sep = ";") %>%
+  dplyr::distinct(.keep_all=T)
+
+# Inner join as we only want to keep those pairs 
+# which contain genes from the significant genes 
+# list in genes_df. 
+gene_disease_pairs <- dplyr::inner_join(
+  genes_df,
+  disease_df,
+  by = "gene"
+) %>% dplyr::select(-Description) %>%
+  dplyr::distinct(.keep_all=TRUE)
+View(gene_disease_pairs)
+nrow(gene_disease_pairs)
+```
+
+- Retrieve evidence
+
+```{r}
+# This will be used to store the results from 
+# disGeNET's gene2evidence function. 
+all_gene_evidence_df <- list()
+
+# For gene and drug pairs which do not have 
+# evidence, skip them and continue looping
+# Takes >30 mins to run. Need to 
+# figure out how to parallelize at some point. 
+for (i in 1:nrow(gene_disease_pairs)){
+    tryCatch({
+        tmp <- gene2evidence(
+    gene = gene_disease_pairs$gene[[i]],
+    vocabulary = "HGNC",
+    disease = gene_disease_pairs$ID[[i]],
+    database = "ALL",
+    score = c(0.3, 1)
+  )
+  all_gene_evidence_df[[i]] <- disgenet2r::extract(tmp)
+    }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
+}
+```
+
+- Condense down results into single data.frame
+
+```{r}
+all_gene_evidence_df2 <- all_gene_evidence_df %>%
+  bind_rows()
+
+all_gene_evidence_df2 %>% saveRDS(here("data", "all_gene_evidence_df2.rds"))
+```
+
+
+
+
+## Network visualizations
+- Edge and node tables will be exported below, for visualization in Gephi. 
+
+### Subnetwork - Nervous system diseases
+
+```{r}
+sig_table$disease_class_name %>% unique
+```
+
+```{r}
+nervousSystemDiseases <- sig_table %>% 
+  tidyr::separate_rows(disease_class_name, sep = ";") %>%
+  dplyr::filter(!is.na(disease_class_name)) %>%
+  dplyr::mutate(disease_class_name = stringr::str_trim(disease_class_name)) %>%
+  # Make a CNS-themed network with the following 
+  # disease classes.
+  dplyr::filter(
+  disease_class_name == "Nervous System Diseases" #|
+    #disease_class_name == "Mental Disorders"
+) %>%
+  dplyr::select(Description, shared_symbol) %>%
+  tidyr::separate_rows(shared_symbol, sep = ";") 
+```
+
+Let's see if we can create a network from this. 
+
+#### Edges
+
+edges between
+- disease and target gene (DisGeNet information)
+- drug and target gene (CMap information)
+
+```{r}
+drugGeneEdges <- full_table_tidy %>% 
+  dplyr::filter(sig == TRUE) %>%
+  dplyr::select(pert_iname, t_gn_sym) %>%
+  magrittr::set_colnames(c("source", "target"))
+View(drugGeneEdges)
+
+nervous_system_edges <- nervousSystemDiseases %>%
+  dplyr::select(Description, shared_symbol) %>%
+  magrittr::set_colnames(c("source", "target")) %>%
+  dplyr::bind_rows(drugGeneEdges)
+View(nervous_system_edges)
+```
+
+#### Nodes
+
+- The key information we need in the nodes table includes:
+
+- **id**: The name of the node
+- **label**: The label of the node (same as **id** in most cases)
+- **type**: the type of node, this is because we want to color them differently in the network. 
+
+```{r}
+nodeType_drug <- data.frame(
+  id = drugGeneEdges$source %>% unique,
+  type = "drug"
+)
+
+nodeType_gene <- data.frame(
+  id = c(unique(drugGeneEdges$target), nervousSystemDiseases$shared_symbol),
+  type = "gene"
+)
+
+nodeType_indication <- data.frame(
+  id =unique(nervousSystemDiseases$Description),
+  type = "disease"
+)
+
+nodes <- bind_rows(
+  nodeType_drug,
+  nodeType_gene,
+  nodeType_indication
+) %>%
+  dplyr::mutate(label = case_when(
+    type == "drug" | type == "disease" ~ id,
+    TRUE ~ ""
+  ))
+View(nodes)
+```
+
+#### Export tables
+
+```{r}
+nodes %>% readr::write_csv(here("output", "indications_nervous_system_nodes3.csv"))
+
+nervous_system_edges %>%
+  readr::write_csv(here("output", "indications_nervous_system_edges3.csv"))
+```
+
+### Subnetwork - Only drugs to genes
+
+
+```{r}
+nodes_drugsGenes <- nodes %>%
+  dplyr::filter(type %in% c("drug", "gene"))
+
+nodes_drugsGenes$type %>% unique
+dim(nodes_drugsGenes)
+View(nodes_drugsGenes)
+
+edges_drugsGenes <- nervous_system_edges %>%
+  dplyr::filter(source %in% nodes_drugsGenes$id &
+                  target %in% nodes_drugsGenes$id)
+
+nodes_drugsGenes  %>%
+  readr::write_csv(here("output", "nodes_drugsGenes.csv"))
+edges_drugsGenes %>%
+  readr::write_csv(here("output", "edges_drugsGenes.csv"))
+```
+
+### Subnetwork - Only diseases and genes
+
+```{r}
+nodes_diseasesGenes <- nodes %>%
+  dplyr::filter(type %in% c("disease", "gene"))
+
+nodes_diseasesGenes$type %>% unique
+dim(nodes_diseasesGenes)
+View(nodes_diseasesGenes)
+
+edges_diseasesGenes <- nervous_system_edges %>%
+  dplyr::filter(source %in% nodes_diseasesGenes$id &
+                  target %in% nodes_diseasesGenes$id)
+
+nodes_diseasesGenes  %>%
+  readr::write_csv(here("output", "nodes_diseasesGenes.csv"))
+edges_diseasesGenes %>%
+  readr::write_csv(here("output", "edges_diseasesGenes.csv"))
+```
+

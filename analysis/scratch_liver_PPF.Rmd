@@ -1,0 +1,347 @@
+---
+title: "scratch_liver_PPF"
+author: "Nhi Hin"
+date: "2023-02-20"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+```{r message=FALSE, warning=FALSE}
+library(Seurat)
+library(dplyr)
+library(magrittr)
+library(readr)
+library(tibble)
+library(ggplot2)
+library(SingleCellExperiment)
+library(scater)
+library(here)
+library(rhdf5)
+library(signatureSearch)
+library(signatureSearchData)
+library(HDF5Array)
+library(ExperimentHub)
+```
+
+
+## Summary
+
+In order to do more relevant testing, I think it would be a good idea to use one of our own datasets as a query dataset. 
+
+Will prepare liver dataset for such a purpose. 
+
+Needs to be run on R 4.2.2, otherwise signatureSearch functions don't work properly. 
+
+## Import Data
+
+```{r}
+seurat_path <- "/mnt/home/alkahest.com/dleone/Documents/Analyses/alkahest/sci_app/liver/2023-01-17_PPF/seurat/2023-01-17_filtered.alkahest.main.obj.Rds"
+
+seurat_liver <- readRDS(seurat_path)
+```
+
+## Load Helper functions
+
+- The helper functions basically abstract out what was done in the `scratch_6021.Rmd` markdown, but generalising out to other datasets too. It seems to work out of box for liver data although as this data is quite large it takes a while to run. 
+
+```{r}
+source(here("code", "helper_functions.R"))
+```
+
+## Run Analysis
+
+```{r}
+# Note first step takes ~20 mins to run + up to 150Gb in memory 
+# depending on dataset due to filtering step
+sce <- convertSeuratToSCE(seurat_liver)
+gc()
+
+pseudobulk_mat <- aggregateSCEIntoPseudobulkMatrix(sce)
+pseudobulk_mat_l <- splitAggregatedMatrixPerCelltype(pseudobulk_mat)
+zscores_l <- splitPerCelltypeAggregatedMatrixByGroup(sce, pseudobulk_mat_l)
+```
+
+Save data
+
+```{r eval=FALSE}
+zscores_l %>% saveRDS(here("data", "zscores_l_liver.rds"))
+
+zscores_l <- readRDS(here("data", "zscores_l_liver.rds"))
+```
+
+## Convert mouse ensembl ID to human entrez ID
+
+- Because CMap is in the form of human entrez IDs, we will need to convert the mouse Ensembl IDs in order to do queries. 
+
+- There are many:1 mappings going from mouse to human. In this case we will use the gene expression value with the maximum absolute value (regardless of sign). 
+
+```{r}
+# takes too long to run for testing purposes, expect
+# 1-2 mins per cell type
+# zscores_entrez <- zscores_l %>%
+#   lapply(function(x){
+#     x %>% lapply(function(y){
+#       df <- y %>% 
+#         as.data.frame %>%
+#         set_colnames(c("zscore")) %>%
+#         convertMouseEnsemblToHumanEntrezID(
+#           functionForReplicates = "absmax")
+#       ls <- f$zscore %>%
+#         magrittr::set_names(rownames(df))
+#         return(ls)
+#     })
+#   })
+# zscores_df %>% saveRDS(here("zscores_df.rds"))
+
+# Just running for hepatocyte
+zscores_entrez <- list()
+zscores_entrez$hepatocyte <- zscores_l$hepatocyte %>%
+  lapply(function(y){
+    df <- y %>% 
+         as.data.frame %>%
+         set_colnames(c("zscore")) %>%
+         convertMouseEnsemblToHumanEntrezID(
+           functionForReplicates = "absmax")
+    ls <- df$zscore %>%
+      magrittr::set_names(rownames(df))
+    return(ls)
+  })
+
+zscores_entrez$hepatocyte$Vehicle_NC_0hr %>% head
+
+# Try running for endothelial too
+zscores_entrez$sinusoidal_endothelial <- zscores_l$`sinusoidal endothelial` %>%
+  lapply(function(y){
+    df <- y %>% 
+         as.data.frame %>%
+         set_colnames(c("zscore")) %>%
+         convertMouseEnsemblToHumanEntrezID(
+           functionForReplicates = "absmax")
+    ls <- df$zscore %>%
+      magrittr::set_names(rownames(df))
+    return(ls)
+  })
+  
+```
+
+
+## Calculate difference of z-scores for a few relevant comparisons 
+
+- This will be done manually until I figure out how to abstract it out to a function. 
+
+- The idea here is to get a score corresponding to how DE each gene is in a particular comparison. I think we will probably use an actual DE metric for this eventually (for any experiments with n=3), but I can see this method being OK for any experiments with less than 3 samples. 
+
+### Hepatocyte
+
+```{r}
+zscores_l$hepatocyte %>% names
+
+hepatocyte_diffs <- list()
+hepatocyte_diffs$PPF_vs_Veh_NC_0hr <- zscores_entrez$hepatocyte$`Pl-47615_NC_0hr` - zscores_entrez$hepatocyte$Vehicle_NC_0hr
+
+hepatocyte_diffs$PPF_vs_Veh_NC_0hr %>% summary()
+
+hepatocyte_diffs$PPF_vs_Veh_HFD_0hr <- zscores_entrez$hepatocyte$`Pl-47615_HFD_0hr` - zscores_entrez$hepatocyte$Vehicle_HFD_0hr
+
+hepatocyte_diffs$PPF_vs_Veh_HFD_0hr %>% summary()
+```
+
+### Sinusoidal Endothelial
+
+```{r}
+se_diffs <- list()
+
+se_diffs$PPF_vs_Veh_NC_0hr <- zscores_entrez$sinusoidal_endothelial$`Pl-47615_NC_0hr` - zscores_entrez$sinusoidal_endothelial$Vehicle_NC_0hr
+
+se_diffs$PPF_vs_Veh_NC_0hr %>% summary()
+
+se_diffs$PPF_vs_Veh_HFD_0hr <- zscores_entrez$sinusoidal_endothelial$`Pl-47615_HFD_0hr` - zscores_entrez$sinusoidal_endothelial$Vehicle_HFD_0hr
+
+se_diffs$PPF_vs_Veh_HFD_0hr %>% summary()
+```
+
+
+## Get top and bottom 150 genes based on ranking of difference of z-scores
+
+```{r}
+# upset <- head(names(query[order(-query)]), 150)
+#downset <- tail(names(query[order(-query)]), 150)
+
+upsets <- list()
+downsets <- list()
+
+upsets$hepatocyte <- list()
+downsets$hepatocyte <- list()
+
+upsets$sinusoidal_endothelial <- list()
+downsets$sinusoidal_endothelial <- list()
+
+
+for(comparison in names(hepatocyte_diffs)){
+  upsets$hepatocyte[[comparison]] <- head(names(hepatocyte_diffs[[comparison]][order(-hepatocyte_diffs[[comparison]])]), 150)
+  
+  downsets$hepatocyte[[comparison]] <- tail(names(hepatocyte_diffs[[comparison]][order(-hepatocyte_diffs[[comparison]])]), 150)
+}
+
+for(comparison in names(se_diffs)){
+  upsets$sinusoidal_endothelial[[comparison]] <- head(names(se_diffs[[comparison]][order(-se_diffs[[comparison]])]), 150)
+  
+  downsets$sinusoidal_endothelial[[comparison]] <- tail(names(se_diffs[[comparison]][order(-se_diffs[[comparison]])]), 150)
+}
+
+```
+
+
+## Load test CNS internal data base
+
+The generation of the internal database (h5 file) was done in the `scratch_signatureSearch.Rmd` notebook. 
+
+This database only contains the CNS data, subsetted to the PPF and Vehicle samples only (so not young and aged samples; all samples are aged). This is just for testing purposes. 
+
+```{r}
+custom_db_path <- here("output","db_6021_signatureSearch.h5")
+
+custom_db_6021 <- SummarizedExperiment(
+  HDF5Array(custom_db_path,
+            name = "assay")
+)
+
+rownames(custom_db_6021) <- HDF5Array(custom_db_path, 
+                                      name = "rownames")
+
+colnames(custom_db_6021) <- HDF5Array(custom_db_path,
+                                      name = "colnames")
+
+custom_db_6021
+```
+
+## Perform query of liver data against CNS data
+
+```{r}
+qsigs_hepatocyte <- list()
+query_against_customdb_hepatocyte <- list()
+for(comparison in names(hepatocyte_diffs)){
+  qsigs_hepatocyte[[comparison]] <- qSig(
+    query = list(upset = upsets$hepatocyte[[comparison]],
+                 downset = downsets$hepatocyte[[comparison]]),
+    gess_method = "LINCS",
+    refdb = custom_db_path
+  )
+  
+  query_against_customdb_hepatocyte[[comparison]] <- 
+    gess_lincs(qSig = qsigs[[comparison]],
+               sortby = "NCS",
+                  tau = FALSE,
+                  workers = 2)
+}
+
+qsigs_se <- list()
+query_against_customdb_se <- list()
+for(comparison in names(se_diffs)){
+  qsigs_se[[comparison]] <- qSig(
+    query = list(upset = upsets$sinusoidal_endothelial[[comparison]],
+                 downset = downsets$sinusoidal_endothelial[[comparison]]),
+    gess_method = "LINCS",
+    refdb = custom_db_path
+  )
+  
+  query_against_customdb_se[[comparison]] <- 
+    gess_lincs(qSig = qsigs_se[[comparison]],
+               sortby = "NCS",
+                  tau = FALSE,
+                  workers = 2)
+}
+
+View(result(query_against_customdb_se
+            $PPF_vs_Veh_HFD_0hr))
+```
+
+- Overall testing two different cell types (hepatocyte; sinusoidal endothelial) against the CNS data, some positive associations, all connectivity scores 0.4 or less, none negative. indicates moderate similarity?
+
+## Query LINCS2
+
+```{r}
+lincs2 <- readRDS(here("data", "lincs2.rds"))
+```
+
+
+```{r}
+qsigs_hepatocyte2 <- list()
+query_against_customdb_hepatocyte2 <- list()
+for(comparison in names(hepatocyte_diffs)){
+  qsigs_hepatocyte2[[comparison]] <- qSig(
+    query = list(upset = upsets$hepatocyte[[comparison]],
+                 downset = downsets$hepatocyte[[comparison]]),
+    gess_method = "LINCS",
+    refdb = lincs2
+  )
+  
+  query_against_customdb_hepatocyte2[[comparison]] <- 
+    gess_lincs(qSig = qsigs_hepatocyte2[[comparison]],
+               sortby = "NCS",
+                  tau = FALSE, 
+               cmp_annot_tb = lincs_pert_info2, 
+  by = "pert_id", 
+  cmp_name_col = "pert_iname",
+                  workers = 4)
+}
+```
+
+#### Functional enrichment analysis
+
+```{r}
+drugs_hepatocyte <-query_against_customdb_hepatocyte2$PPF_vs_Veh_NC_0hr %>%
+  result %>%
+  as.data.frame %>%
+  dplyr::filter(WTCS_FDR < 0.05) %>%
+  dplyr::pull(pert_iname) %>%
+  unique
+# Gene ontology
+go_tea <- tsea_dup_hyperG(drugs = drugs_hepatocyte,
+                          universe="Default",
+                          type = "GO",
+                          ont = "MF",
+                          pvalueCutoff = 0.05,
+                          pAdjustMethod = "BH",
+                          qvalueCutoff = 0.1,
+                          minGSSize = 10,
+                          maxGSSize = 500)
+
+result(go_tea) %>% View
+
+dtnetplot(drugs = drugs(go_tea),
+          set = "GO:0004674",
+          ont = "MF")
+
+
+```
+
+- KEGG
+
+```{r}
+kegg_tea  <- tsea_dup_hyperG(drugs = drugs_hepatocyte,
+                          universe="Default",
+                          type = "KEGG",
+                          pvalueCutoff = 0.5,
+                          pAdjustMethod = "BH",
+                          qvalueCutoff = 0.1,
+                          minGSSize = 10,
+                          maxGSSize = 500)
+
+result(kegg_tea) %>% View()
+```
+
+- Reactome
+
+```{r}
+reactome_tea  <- tsea_dup_hyperG(drugs = drugs_hepatocyte,
+                          type = "Reactome",
+                          pvalueCutoff = 0.5,
+                          pAdjustMethod = "BH",
+                          qvalueCutoff = 0.5,
+                          readable=TRUE)
+
+result(reactome_tea) %>% View
+```
+

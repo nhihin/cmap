@@ -1,0 +1,447 @@
+---
+title: "Scratch: Create internal CMap-like database from NESDA data"
+author: "Nhi Hin"
+date: "2023-05-03"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+## Load Packages
+
+```{r message=FALSE, warning=FALSE}
+library(Seurat)
+library(dplyr)
+library(magrittr)
+library(readr)
+library(tibble)
+library(ggplot2)
+library(SingleCellExperiment)
+library(scater)
+library(here)
+library(rhdf5)
+library(signatureSearch)
+library(signatureSearchData)
+library(HDF5Array)
+library(ExperimentHub)
+library(cowplot)
+theme_set(theme_cowplot())
+```
+
+## Output Directory
+
+```{r}
+output_dir <- here("output", "_scratch_nesda_Rmd")
+
+ifelse(!dir.exists(output_dir),
+       dir.create(output_dir), 
+       FALSE)
+```
+
+
+## Objective
+
+1. Load NESDA data and get it into a form where we can use it for our internal database of CMap-like datasets. 
+
+2. Answer the question of which scoring mechanism is best. 
+
+
+
+## Load Helper functions
+
+```{r}
+source(here("code", "helper_functions.R"))
+```
+
+
+## Import Data
+
+- Updated to only read in the full datasets for each cohort. 
+
+```{r}
+nesda_path <- file.path("/mnt/atlas/work/general/external/studies/NESDA")
+
+nesda_names <- list.files(nesda_path,
+                          pattern = "*_full.csv",
+                          full.names = FALSE) %>%
+  gsub(x = .,
+       pattern = ".csv|NESDA_per_somamer_meds_",
+       replacement = "")
+
+nesdata <- list.files(nesda_path,
+                      pattern = "*_full.csv",
+                      full.names = TRUE) %>%
+  lapply(readr::read_csv) %>%
+  set_names(nesda_names)
+
+nesdata %>% lapply(dim)
+
+# nesdata$healthy <- NULL
+# healthy appears same as $Control
+```
+
+## Import Somamer to Protein Mappings
+
+```{r}
+somaMap <- readRDS("/mnt/atlas/general_archive/data/target_selection/cycle_5/data_in/somalogic_annotations/Somalogic-Human_7K_Annotations-Uniprot_Centric.rds")
+View(somaMap)
+```
+
+## Initial Exploration
+
+### Number of Somamers Per Drugs Per Cohort
+
+```{r}
+table_ndrugsPerSomamerPerCohort <- nesdata %>% 
+  lapply(function(x){
+    x %>% dplyr::group_by(drug) %>%
+      dplyr::summarise(n=n())
+  }) %>%
+  bind_rows(.id = "cohort") 
+table_ndrugsPerSomamerPerCohort %>%
+  write_csv(file.path(output_dir,
+                      "table_ndrugsPerSomamerPerCohort.csv"))
+  
+table_ndrugsPerCohort <- table_ndrugsPerSomamerPerCohort %>%
+  dplyr::group_by(cohort) %>%
+  dplyr::summarize(n=n()) 
+table_ndrugsPerCohort %>%
+  write_csv(file.path(output_dir, "table_ndrugsPerCohort.csv"))
+```
+
+### Drug Overlap Between Cohorts
+
+- The majority of drugs are only in the Anxiety-Depression Cohort, or shared between this Cohort and the Healthy and Control cohorts. 
+- Also a sizable number of drugs ~15? that are shared between all Cohorts except Bipolar. 
+- Bipolar only has one drug. 
+
+```{r}
+table_drugsPerCohort <- table_ndrugsPerSomamerPerCohort %>% 
+  dplyr::group_by(drug) %>%
+  dplyr::summarize(cohort = list(cohort))
+View(table_drugsPerCohort)
+
+plot_overlapDrugsPerCohort <- table_drugsPerCohort %>%
+  ggplot(aes(x = cohort))+
+  geom_bar() +
+  ggupset::scale_x_upset()
+plot_overlapDrugsPerCohort
+plot_overlapDrugsPerCohort %>%
+  ggsave(
+    file.path(output_dir, "plot_overlapDrugsPerCohort.pdf"),
+    plot = .,
+    units = "in",
+    width = 14,
+    height = 8
+  )
+```
+
+- Get overlaps as a list
+
+```{r}
+table_drugsPerCohort2 <- table_ndrugsPerSomamerPerCohort %>% 
+  dplyr::group_by(cohort) %>%
+  dplyr::summarize(drug = list(drug)) 
+
+drugsPerCohort_l <- table_drugsPerCohort2$drug %>%
+  as.list() %>%
+  set_names(table_drugsPerCohort2$cohort)
+
+drugsPerCohort_overlap <- overlapGroups(drugsPerCohort_l)
+```
+
+
+### Fold Change of Somamers Between Drugs & Between Cohorts
+
+```{r}
+tables_fc_per_somamer <- nesdata %>%
+  bind_rows(.id = "cohort") %>%
+  dplyr::arrange(Somamer) %>%
+  split(x=., f = .$Somamer) %>%
+  lapply(function(x){
+    x %>%
+      dplyr::group_by(drug) %>%
+      dplyr::arrange(drug)
+  })
+
+tables_fc <- nesdata %>%
+  lapply(function(x) {
+    x %>%
+      dplyr::group_by(drug) %>%
+      dplyr::summarise(
+        mean_fc = mean(Estimate),
+        sd_fc = sd(Estimate),
+        min_fc = min(Estimate),
+        max_fc = max(Estimate),
+        med_fc = median(Estimate)
+      )
+  })
+  
+```
+
+
+
+## Prepare Matrix for SignatureSearch DB
+
+- Initially, we will test this with the Control subset of patients. 
+
+- Create various versions of the DB:
+
+1. Connectivity Score is `(1 - pv) * Estimate`.
+2. Connectivity Score is `Estimate`. This seems a bit fishy though considering that the fold changes are all quite subtle - leaving out p-value information seems not great. At the same time, fold changes should be directly comparable across drugs 
+3. Connectivity Score is -log10(p) * Estimate. This is more similar to that of a Volcano Plot.  The potential disadvantage here is that small p-values could skew the overall result more than the v1 method. 
+
+### Control Cohort
+
+#### Version 1 
+
+```{r}
+control_drug_names <- nesdata$Control_full %>%
+  split(x = ., f = .$drug) %>%
+  names()
+
+control_drugs <- nesdata$Control_full %>%
+  split(x = ., f = .$drug) %>%
+  lapply(function(x){
+    x %>% 
+      dplyr::select(Estimate, pv, Somamer) %>%
+      dplyr::mutate(Score = (1 - pv) * Estimate) %>%
+      dplyr::select(Somamer, Score) %>%
+      tibble::column_to_rownames("Somamer") 
+  }) %>%
+  bind_cols() %>%
+  set_colnames(paste0(control_drug_names, 
+                      "__",
+                      "Control",
+                      "__",
+                      "Control"))
+
+build_custom_db(
+  control_drugs, 
+  h5file = file.path(output_dir, "control_drugs.h5"))
+
+control_drugs_db_path <- file.path(output_dir, "control_drugs.h5")
+file.exists(control_drugs_db_path)
+```
+
+#### Version 3 - ala Volcano Plot
+
+```{r}
+control_drugs_v2 <- nesdata$Control_full %>%
+  split(x = ., f = .$drug) %>%
+  lapply(function(x){
+    x %>% 
+      dplyr::select(Estimate, pv, Somamer) %>%
+      dplyr::mutate(Score = Estimate) %>%
+      dplyr::select(Somamer, Score) %>%
+      tibble::column_to_rownames("Somamer") 
+  }) %>%
+  bind_cols() %>%
+  set_colnames(paste0(control_drug_names, 
+                      "__",
+                      "Control",
+                      "__",
+                      "Control"))
+
+build_custom_db(
+  control_drugs_v2, 
+  h5file = file.path(output_dir, "control_drugs_v2.h5"))
+
+control_drugs_db_path_v2 <- file.path(output_dir, "control_drugs_v2.h5")
+file.exists(control_drugs_db_path_v2)
+```
+
+#### Version 3 - Only use fold change
+
+```{r}
+control_drugs_v3 <- nesdata$Control_full %>%
+  split(x = ., f = .$drug) %>%
+  lapply(function(x){
+    x %>% 
+      dplyr::select(Estimate, pv, Somamer) %>%
+      dplyr::mutate(Score = -log10(pv)*Estimate) %>%
+      dplyr::select(Somamer, Score) %>%
+      tibble::column_to_rownames("Somamer") 
+  }) %>%
+  bind_cols() %>%
+  set_colnames(paste0(control_drug_names, 
+                      "__",
+                      "Control",
+                      "__",
+                      "Control"))
+
+build_custom_db(
+  control_drugs_v3, 
+  h5file = file.path(output_dir, "control_drugs_v3.h5"))
+
+control_drugs_db_path_v3 <- file.path(output_dir, "control_drugs_v3.h5")
+file.exists(control_drugs_db_path_v3)
+```
+
+### Database Paths
+
+```{r}
+db_paths <- list(
+  rick = control_drugs_db_path,
+  fc_only = control_drugs_db_path_v2,
+  volcano = control_drugs_db_path_v3
+)
+```
+
+
+## Test by querying Signatures of Other Cohorts against Control 
+
+### Import Signatures & Split to Drug-Per-Dataframe
+
+```{r}
+sigs <- list(
+  dep_anx = readr::read_csv(file.path(nesda_path, "NESDA_per_somamer_meds_Dep_Anx.csv")) ,
+  dep = readr::read_csv(file.path(nesda_path, "NESDA_per_somamer_meds_Depression.csv"))
+) %>%
+  lapply(function(x){
+    split(x=., f=.$drug)
+  }) %>%
+  # Subset to the drugs which are also present in the 
+  # Control cohort
+  lapply(function(x){
+    x[names(x) %in% control_drug_names]
+  })
+
+
+```
+
+
+### Import in Dep_Anx signature
+
+```{r}
+dep_anx_query <- readr::read_csv(file.path(nesda_path, "NESDA_per_somamer_meds_Dep_Anx.csv")) %>%
+  split(x=., f=.$drug)
+
+# Subset to the drugs which are also present in the Control cohort. 
+dep_anx_query <- dep_anx_query[names(dep_anx_query) %in% control_drug_names]
+
+# Order Somamers by Score for preparation of 
+# Up and Down sets
+dep_anx_query %<>%
+  lapply(function(x){
+    x %>%
+      dplyr::select(Somamer, Estimate, pv) %>%
+      dplyr::mutate(Score = (1 - pv) * Estimate) %>%
+      dplyr::select(Somamer, Score) %>%
+      dplyr::arrange(Score) %>%
+      tibble::column_to_rownames("Somamer") 
+  })
+
+dep_anx_query %>% View
+
+dep_anx_query_up <- dep_anx_query %>%
+  lapply(function(x){
+    x %>%
+      dplyr::filter(Score > 0) %>%
+      rownames()
+  })
+
+dep_anx_query_down <- dep_anx_query %>%
+  lapply(function(x){
+    x %>%
+      dplyr::filter(Score < 0) %>%
+      rownames()
+  })
+```
+
+### Perform Query
+
+- Below, 
+
+```{r}
+qsig_preps <- list()
+queries <- list()
+results_queries <- list()
+
+for(db in names(db_paths)){
+  qsig_preps[[db]] <- list()
+  queries[[db]] <- list()
+  results_queries[[db]] <- list()
+  
+  for(drug in names(dep_anx_query_up)){
+   qsig_preps[[db]][[drug]] <- 
+     qSig(
+       query = list(upset = dep_anx_query_up[[drug]],
+                    downset = dep_anx_query_down[[drug]]),
+                    gess_method = "LINCS",
+                    refdb = db_paths[[db]])
+     
+   
+   queries[[db]][[drug]] <-
+     gess_lincs(
+       qSig = qsig_preps[[db]][[drug]],
+       sortby = "NCS",
+       tau = FALSE,
+       cmp_annot_tb = NULL,
+       cmp_name_col = NULL,
+       #Need or it fails
+       workers = 2
+     )
+   results_queries[[db]][[drug]] <- 
+     result(queries[[db]][[drug]] )
+   
+  }
+}
+
+queries %>% saveRDS(file.path(output_dir, "queries.rds"))
+results_queries %>% saveRDS(file.path(output_dir, "results_queries.rds"))
+```
+
+### Rankings
+
+```{r}
+cs_ranks <- list()
+
+for(scoringmethod in names(results_queries)){
+    cs_ranks[[scoringmethod]] <- list()
+    for(d in names(results_queries[[scoringmethod]])){
+      cs_ranks[[scoringmethod]][[d]] <- 
+        results_queries[[scoringmethod]][[d]] %>%
+        dplyr::arrange(desc(NCS)) %>%
+        dplyr::mutate(rank = 1:nrow(.)) %>%
+        dplyr::filter(pert == d) %>%
+        dplyr::pull(rank)
+    }
+    
+}
+
+cs_ranks %<>%
+  lapply(function(x){
+    x %>%
+      unlist() %>%
+  as.data.frame() %>%
+  set_colnames("rank") 
+  })
+  
+
+rank_results <- cs_ranks %>% bind_cols() %>%
+  set_colnames(names(results_queries)) 
+
+rank_results %>% saveRDS(file.path(output_dir, "rank_results.rds"))
+
+apply(rank_results, 2, sum)
+```
+
+
+
+```{r}
+qsig_test <- qSig(
+  query = list(upset = dep_anx_query_up$A02BA02,
+               downset = dep_anx_query_down$A02BA02),
+                  gess_method = "LINCS", 
+                  refdb = control_drugs_db_path)
+
+test_query <- gess_lincs(qSig = qsig_test,
+                  sortby = "NCS",
+                  tau = FALSE,
+                  cmp_annot_tb = NULL,
+                  cmp_name_col = NULL, #Need or it fails
+                  workers = 2)
+
+result(test_query) %>% View()
+```

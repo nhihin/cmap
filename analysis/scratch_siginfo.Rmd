@@ -1,0 +1,131 @@
+---
+title: "Scratch: what is the sig info file?"
+author: "Nhi Hin"
+date: "2023-02-07"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+```{r load-packages, message=FALSE}
+library(dplyr)
+library(magrittr)
+library(readr)
+library(cmapR)
+```
+
+
+## Background
+
+siginfo.txt is an input to the queryl1k functionality of CMap. 
+
+In the documentation, it is an input in the following flag:
+
+> `--sig_meta` SIG_META : Signature metadata for each column in the score matrix. This is a required field. The first field must match the column id field in the score matrix. The following fields are required [sig_id, is_ncs_sig, is_null_sig]. In addition fields specified for ncs_group and exemplar_field arguments must be present.
+
+## Import data
+
+```{r}
+siginfo <- readr::read_tsv("~/Projects/workshop_tutorial/sigtool_demo/datasets/l1000/m2.subset.10k/siginfo.txt")
+
+dim(siginfo)
+colnames(siginfo)
+rownames(siginfo)
+```
+
+- lets import the score matrix as well to see what's going on. 
+
+```{r}
+score <- cmapR::parse_gctx("~/Projects/workshop_tutorial/sigtool_demo/datasets/l1000/m2.subset.10k/level5_modz.bing_n10000x10174.gctx")
+
+score@mat %>% dim
+score@mat %>% colnames %>% as.data.frame %>% head
+
+score@cid%>% length
+```
+
+
+- Rownames are genes (entrez IDs). 
+- Column names describe various metadata
+
+```{r}
+head(siginfo)
+```
+
+- It would seem that the first column of siginfo, `sig_id`, matches the column IDs of the `score` matrix. 
+
+```{r}
+table(score@cid == siginfo$sig_id)
+```
+
+## Required columns
+
+To construct our own siginfo data frame, the documentation states we need the following columns
+
+> The following fields are required [sig_id, is_ncs_sig, is_null_sig]. In addition fields specified for ncs_group and exemplar_field arguments must be present.
+
+Lets subset these out from siginfo to take a closer look at them. 
+
+```{r}
+siginfo %>%
+  dplyr::select(sig_id, is_ncs_sig, is_null_sig) %>%
+  head() 
+```
+
+It looks like `is_ncs_sig` and `is_null_sig` are booleans of some sort. Having TRUE in one does not allow for prediction of the other, so it looks like they are independent of each other. 
+
+From this documentation, it seems that NCS stands for normalized connectivity score:
+
+> https://clue.io/connectopedia/pdf/cmap_algorithms
+> To allow for comparison of connectivity scores across cell types and perturbation types, the scores are normalized to account for global differences in connectivity that might occur across these covariates. Given a vector of WTCS values w resulting from a query, we normalize the values within each cell line and perturbagen type to obtain normalized connectivity scores (NCS) as follows:
+
+Not super useful, as it looks like all values in the particular dataframe are `1` (TRUE):
+
+```{r}
+siginfo %>%
+  dplyr::select(sig_id, is_ncs_sig, is_null_sig) %>%
+  dplyr::pull(is_ncs_sig) %>% table
+```
+
+`is_null_sig` is a little more interesting. Some of them aren't:
+
+```{r}
+siginfo %>%
+  dplyr::select(sig_id, is_ncs_sig, is_null_sig) %>%
+  dplyr::pull(is_null_sig) %>% table
+
+siginfo %>%
+  dplyr::filter(is_null_sig == 1) %>%
+  dplyr::select(moa, pert_type) %>%
+  dplyr::group_by_all() %>%
+  dplyr::summarise(n=n())
+```
+
+- Seems like they correspond to control vehicle treatments or control genetic vectors that are meant to not have an effect on gene expression. 
+
+- Possibly, we might be able to include something similar by doing DE between the Vehicle and the untreated? Although batch might be an issue. Not sure if we'd need this strictly however. 
+
+> In addition fields specified for ncs_group and exemplar_field arguments must be present.
+
+- Those are actually not columns but flags in the original queryl1k command:
+
+> --ncs_group NCS_GROUP : Grouping field(s) used to normalize connectivity scores
+
+- Not sure what the above is, as this wasn't defined in the l1k demo that was ran so I guess the default value was used?
+
+> --exemplar_field EXEMPLAR_FIELD : If defined the field should exist in the sig_meta file and have (0,1) values. The per-query digests are filtered to signatures where the value>0. Default is is_exemplar_sig
+
+- Lets take a look at `is_exemplar_sig` column:
+
+```{r}
+siginfo$is_exemplar_sig %>% table
+```
+
+ These seem to correspond to higher quality signatures, as implied by the word exemplar. 
+ 
+ > 
+`is_exemplar`   A boolean indicating whether the given signature is an exemplar. Due to the redundancy of the CMap database, meaning that some perturbagens have many signatures even within the same cell line, it is convenient to identify a single ‘exemplar’ signature for each perturbagen in each cell line. These signatures are specifically designated for further analysis, such as ICC and aggregate TAS. Exemplar signatures are generally picked based on TAS, such that the signature with the highest TAS is chosen as exemplar. https://clue.io/connectopedia/glossary
+
+Also:
+
+> icc   Inter-cell connectivity (ICC). The similarity (aggregated WTCS) between signatures of a given perturbagen across cell lines. This number ranges between -1 and 1, and the higher the number, the more similar the signatures across cell lines. **Only exemplar signatures are used in computing ICC. See is_exemplar for more details**.

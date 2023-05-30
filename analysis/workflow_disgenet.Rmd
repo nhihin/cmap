@@ -1,0 +1,127 @@
+---
+title: "workflow_disgenet"
+author: "Nhi Hin"
+date: "2023-03-30"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+## Load Packages
+
+```{r}
+library(disgenet2r)
+library(Seurat)
+library(dplyr)
+library(magrittr)
+library(readr)
+library(tibble)
+library(ggplot2)
+library(SingleCellExperiment)
+library(scater)
+library(here)
+library(rhdf5)
+library(signatureSearch)
+library(signatureSearchData)
+library(HDF5Array)
+library(ExperimentHub)
+```
+
+## Project-Specific Variables
+
+```{r}
+date_string <- as.character(Sys.Date())
+user_notebook <- Sys.info()[["user"]]
+output_stem <- here("output")
+set.seed(1)
+Sys.setenv(DISGENET_API_KEY = "030b2e02ff356ed135085de8c366cbbacb3bf9a4")
+
+output_dir <- file.path(output_stem, project_name, 
+                        paste0(date_string, "_",
+                               user_notebook))
+  
+ifelse(!dir.exists(output_dir),
+         dir.create(output_dir, recursive = TRUE),
+         FALSE)
+```
+
+## Summary of this notebook
+
+- Given results table from running CMap through *signatureSearch*, we need a way to interpret the results in terms of enriched indications. 
+- In this notebook, we perform over-representation analysis using DisGeNet's disease-gene associations. 
+
+## Import data
+
+### CMap Results (PPF vs Veh, Endothelial cells, vs. HUVEC LINCS2)
+
+See `prepare_6021_data_for_querying_LINCS2.Rmd` for details. 
+
+```{r}
+full_table <- readRDS(here("data", "full_table_endo.rds"))
+colnames(full_table)
+```
+
+## Neaten up table 
+
+- Retain relevant columns
+- Separate out gene symbols, one on each row. 
+
+**Note**: Below, here we are focusing on the HUVEC cell line as this is most comparable to endothelial cells from the transcriptlomics data. 
+
+```{r}
+full_table_tidy <- full_table %>%
+  dplyr::filter(cell == "HUVEC") %>%
+  dplyr::select(pert, pert_iname, 
+                starts_with("WTC"),
+                starts_with("NCS"),
+                MOAss,
+                t_gn_sym,
+                sig)   %>%
+  tidyr::separate_rows(t_gn_sym, sep = ";") %>%
+  dplyr::mutate(t_gn_sym =  stringr::str_trim(t_gn_sym)) 
+nrow(full_table_tidy)
+
+head(full_table_tidy)
+```
+
+- Number of gene targets per drug:
+
+```{r}
+full_table_tidy %>%
+  dplyr::distinct(pert_iname, t_gn_sym) %>%
+  dplyr::group_by(pert_iname) %>%
+  dplyr::summarise(n=n()) %>%
+  dplyr::pull(n) %>%
+  hist(breaks = 50)
+```
+
+-Benoit: what kinds of drugs have 20> targets
+
+```{r}
+drugswith20targets <- full_table_tidy %>%
+  dplyr::distinct(pert_iname, t_gn_sym) %>%
+  dplyr::group_by(pert_iname) %>%
+  dplyr::summarise(n=n()) %>%
+  dplyr::filter(n >= 20)
+
+
+```
+
+## Filter sig results, extract gene symbols
+
+```{r}
+sig_res <- full_table_tidy %>%
+  dplyr::filter(sig == TRUE) 
+  
+
+sig_res %>%
+  dplyr::distinct(pert_iname, t_gn_sym) %>% 
+  dplyr::group_by(pert_iname) %>%
+  dplyr::summarise(n=n()) %>% .$n %>%
+  hist(breaks=50)
+
+  sig_res <- sig_res%>% .$t_gn_sym %>% unique()
+sig_res
+length(sig_res)
+```
+

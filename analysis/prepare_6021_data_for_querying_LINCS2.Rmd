@@ -1,0 +1,987 @@
+---
+title: "prepare_6021_data_for_querying_LINCS2"
+author: "Nhi Hin"
+date: "2023-02-21"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+## Load Packages
+
+```{r message=FALSE, warning=FALSE}
+library(Seurat)
+library(dplyr)
+library(magrittr)
+library(readr)
+library(tibble)
+library(ggplot2)
+library(SingleCellExperiment)
+library(scater)
+library(here)
+library(rhdf5)
+library(signatureSearch)
+library(signatureSearchData)
+library(HDF5Array)
+library(ExperimentHub)
+```
+
+## Objective
+
+- Load in the PPF (GRF6021) dataset, separate it into cell types, and run each cell type's PPF vs Veh comparison as a query against LINCS2 using the CMap methodology as implemented in *signatureSearch*. 
+
+- Results will be exported and also interpreted as follows:
+
+1. Over representation analysis of MOAs and gene targets
+2. Network visualizations
+
+
+## Import data
+
+```{r}
+# HA (Old and Young) Seurat Obj
+# seurat_path <- file.path("~/Projects/tg07_rerun_DEG/results2/2021-10-05_tg07_HA_rerun_2022_filtered.alkahest.main.obj.Rds")
+
+# PPF and Veh Seurat Obj
+seurat_path <- file.path("/mnt/home/alkahest.com/dleone/Documents/Analyses/alkahest/sci_app/post_2hrs/2021-10-14_post_2hrs_tg08_rerun_2022/seurat/2021-10-14_post_2hrs_tg08_rerun_2022_filtered.alkahest.main.obj.Rds")
+
+seurat <- readRDS(seurat_path)
+
+```
+
+## Load Helper functions
+
+- The helper functions basically abstract out what was done in the `scratch_6021.Rmd` markdown, but generalising out to other datasets too. It seems to work out of box for liver data although as this data is quite large it takes a while to run. 
+
+```{r}
+source(here("code", "helper_functions.R"))
+```
+
+## Run Analysis
+
+```{r}
+seurat <- patchSeuratMetadataAge(seurat)
+```
+
+```{r}
+# Note first step takes ~20 mins to run + up to 150Gb in memory 
+# depending on dataset due to filtering step
+sce <- convertSeuratToSCE(seurat)
+gc()
+
+pseudobulk_mat <- aggregateSCEIntoPseudobulkMatrix(sce)
+pseudobulk_mat_l <- splitAggregatedMatrixPerCelltype(pseudobulk_mat)
+zscores_l <- splitPerCelltypeAggregatedMatrixByGroup(sce, pseudobulk_mat_l)
+```
+
+Save / load
+
+```{r eval=FALSE}
+zscores_l %>% saveRDS(here("data", "zscores_l_CNS.rds"))
+zscores_l <- readRDS(here("data", "zscores_l_CNS.rds"))
+```
+
+
+## Convert mouse ensembl ID to human entrez ID
+
+- Because CMap is in the form of human entrez IDs, we will need to convert the mouse Ensembl IDs in order to do queries. 
+
+- There are some many:1 mappings going from mouse to human. In this case we will use the gene expression value with the maximum absolute value (regardless of sign). Other potential options worth trying are "sum" and "mean" (not done yet). 
+
+```{r}
+# Takes 1-2 mins per cell type
+celltypesToKeep <- c("macrophage",
+                     "microglia",
+                     "neuron",
+                     "neuron DG",
+                     "neuron IN",
+                     "oligodendrocyte",
+                     "pericyte", "T-cell",
+                     "endothelial",
+                     "astrocyte")
+
+zscores_entrez <- zscores_l[celltypesToKeep] %>%
+  lapply(function(x){
+    x %>% lapply(function(y){
+      df <- y %>%
+        as.data.frame %>%
+        set_colnames(c("zscore")) %>%
+        convertMouseEnsemblToHumanEntrezID(
+          functionForReplicates = "absmax")
+      ls <- df$zscore %>%
+        magrittr::set_names(rownames(df))
+        return(ls)
+    })
+  })
+
+zscores_entrez %>% saveRDS(here("zscores_df_CNS.rds"))
+zscores_entrez <-readRDS(here("zscores_df_CNS.rds"))
+```
+
+## Calculate difference of z-scores  
+
+- The idea here is to get a score corresponding to how DE each gene is in a particular comparison. I think we will probably use an actual DE metric for this eventually (for any experiments with n=3), but I can see this method being potentially useful for any experiments with n<3 (the original CMap was prepared in this way as there were only n=1 or n=2 etc.)
+
+```{r}
+zscores_entrez$macrophage %>% names
+
+diffs_ppf_vs_veh <- list()
+for(celltype in names(zscores_entrez)){
+  diffs_ppf_vs_veh[[celltype]] <-
+    zscores_entrez[[celltype]]$`Pl-47615` - 
+    zscores_entrez[[celltype]]$Vehicle
+}
+```
+
+### TBC: QC plot for the extremes
+
+
+
+## Get top and bottom 150 genes based on ranking of difference of z-scores
+
+```{r}
+upsets <- list()
+downsets <- list()
+
+for(celltype in names(diffs_ppf_vs_veh)){
+  upsets[[celltype]] <- top_n_names_from_list(diffs_ppf_vs_veh[[celltype]],
+                                   direction = "top",
+                                   n = 150)
+  
+  downsets[[celltype]] <- top_n_names_from_list(diffs_ppf_vs_veh[[celltype]],
+                                   direction = "bottom",
+                                   n = 150)
+}
+```
+
+```{r old_code}
+# for(celltype in names(diffs_ppf_vs_veh)){
+#   upsets[[celltype]] <- head(names(diffs_ppf_vs_veh[[celltype]][order(-diffs_ppf_vs_veh[[celltype]])]), 150)
+#   
+#   downsets[[celltype]] <- tail(names(diffs_ppf_vs_veh[[celltype]][order(-diffs_ppf_vs_veh[[celltype]])]), 150)
+# }
+
+upsets %>% lapply(as.data.frame) %>% openxlsx::write.xlsx(., here("data", "CNS_upsets.xlsx"))
+
+downsets %>% lapply(as.data.frame) %>% openxlsx::write.xlsx(., here("data", "CNS_downsets.xlsx"))
+```
+
+
+## Query LINCS2
+
+### Load LINCS2 Database
+
+```{r}
+# eh <- ExperimentHub()
+# lincs2 <- eh[["EH7297"]]
+# saveRDS(lincs2, here("data", "lincs2.rds"))
+
+lincs2 <- readRDS(here("data", "lincs2.rds"))
+```
+
+### Perform Queries using SignatureSearch
+
+```{r}
+qsigs <- list()
+queries_against_lincs2 <- list()
+
+for(celltype in names(upsets)){
+  
+  qsigs[[celltype]] <- qSig(
+    query = list(upset = upsets[[celltype]],
+                 downset = downsets[[celltype]]),
+    gess_method = "LINCS",
+    refdb = lincs2
+  )
+  
+  queries_against_lincs2[[celltype]] <- 
+    gess_lincs(qSig = qsigs[[celltype]],
+               sortby = "NCS",
+                  tau = FALSE, 
+               cmp_annot_tb = lincs_pert_info2, 
+               by = "pert_id", 
+               cmp_name_col = "pert_iname",
+                  workers = 2)
+}
+```
+
+### Save out results / read results
+
+```{r}
+queries_against_lincs2 %>% saveRDS(here("data", "queries_against_lincs2_CNS_ppfvsveh.rds"))
+
+queries_against_lincs2 <- readRDS(here("data", "queries_against_lincs2_CNS_ppfvsveh.rds"))
+
+queries_against_lincs2 %>% 
+  lapply(result) %>% openxlsx::write.xlsx(here("queries_against_lincs2_ppf.xlsx"))
+```
+
+### Combine Results into Single Dataframe
+
+```{r}
+full_table <- queries_against_lincs2 %>%
+  lapply(result) %>%
+  bind_rows(.id = "query_celltype") %>%
+  dplyr::filter(!is.na(t_gn_sym)) %>%
+  dplyr::mutate(sig =   (trend == "up" &
+                           WTCS_FDR < 0.05 &
+                           NCSct > 0.8)) %>%
+  dplyr::distinct(.keep_all=TRUE)
+
+# In this particular analysis we are only interested 
+# in the endothelial query cell type. 
+full_table %<>%
+  dplyr::filter(query_celltype == "endothelial")
+```
+
+```{r eval=FALSE}
+full_table <- readRDS(here("data", "full_table_endo.rds"))
+```
+
+```{r}
+full_table %>%
+  dplyr::mutate(hasMOA = !is.na(MOAss)) %>%
+  dplyr::filter(sig == TRUE) %>%
+  dplyr::group_by(cell, hasMOA) %>% 
+  dplyr::summarise(n=n() ) %>% 
+  dplyr::filter(hasMOA == TRUE) %>% 
+  .$n %>% sum
+
+full_table %>%
+  dplyr::distinct(pert,.keep_all=T) %>%
+  dplyr::mutate(hasMOA = !is.na(MOAss)) %>%
+  dplyr::group_by(hasMOA) %>%
+  dplyr::summarise(n=n())
+```
+
+
+### Summary of Results
+
+#### Significant Queries
+
+- How many queries are significant according to the `sig` column previously defined?
+
+```{r}
+table(full_table$sig)
+```
+
+- Significant results per LINCS2 cell-line:
+
+```{r}
+full_table_split_by_cell <- full_table %>%
+  split(x=., f = .$cell) 
+
+
+full_table_split_by_cell %>% lapply(
+  function(x){
+    x$sig %>% table
+  }
+)
+```
+
+### Best cell lines ranked by how many significant queries 
+
+```{r}
+
+n_drugs_tested_per_cellline <- full_table_split_by_cell %>%
+  lapply(nrow)
+
+n_drugs_tested_per_cellline <- data.frame(
+ cell = names(n_drugs_tested_per_cellline),
+ n_drugs_tested = unlist(n_drugs_tested_per_cellline)
+)
+
+n_drugs_sig_per_cellline <- full_table_split_by_cell %>%
+  lapply(function(x){
+    x %>%
+      dplyr::filter(sig == TRUE) %>%
+      nrow()
+  })
+
+n_drugs_sig_per_cellline <- data.frame(
+ cell = names(n_drugs_sig_per_cellline),
+ n_drugs_sig = unlist(n_drugs_sig_per_cellline)
+)
+
+best_cell_lines <- full_join(n_drugs_tested_per_cellline, 
+          n_drugs_sig_per_cellline,
+          by = "cell") %>% 
+  dplyr::mutate(prop = n_drugs_sig / n_drugs_tested) %>%
+  dplyr::arrange(desc(prop))
+```
+
+#### p-value Distribution
+
+- What does the distribution of p-values look like?
+
+```{r}
+plots_pval_histogram <- full_table %>%
+  ggplot(aes(x = WTCS_Pval)) +
+  geom_histogram(bins = 100,
+                 fill = "white",
+                 color = "black") +
+  labs(x = "WTCS p-value", y = "Frequency") +
+  ggtitle("CMap WTCS values: p-value histogram")
+plots_pval_histogram
+
+ggsave(here("output","pval_histogram.pdf"), 
+       plots_pval_histogram, 
+       width=11, height=8, units = "in")
+```
+
+#### NCS Distribution
+
+```{r}
+plots_NCS_histogram <- full_table %>%
+  ggplot(aes(x = NCS)) +
+  geom_histogram(bins = 100,
+                 fill = "white",
+                 color = "black") +
+  labs(x = "NCS value", y = "Frequency") +
+  ggtitle("CMap NCS values histogram")
+plots_NCS_histogram
+
+ggsave(here("output","ncs_histogram.pdf"), 
+       plots_NCS_histogram, 
+       width=11, height=8, units = "in")
+```
+
+
+#### NCSct Distribution
+
+```{r}
+plots_NCSct_histogram <- full_table %>%
+  ggplot(aes(x = NCSct)) +
+  geom_histogram(bins = 100,
+                 fill = "white",
+                 color = "black") +
+  labs(x = "NCSct value", y = "Frequency") +
+  ggtitle("CMap NCSct values histogram")
+plots_NCSct_histogram
+
+ggsave(here("output","ncsct_histogram.pdf"), 
+       plots_NCSct_histogram, 
+       width=11, height=8, units = "in")
+```
+
+#### DEV: Pseudo-volcano Plot
+
+- Needs some work. 
+
+```{r}
+full_table %>%
+  ggplot(aes(x = NCSct,
+             y = -log10(WTCS_Pval),
+             color = sig)) +
+  geom_point(alpha=0.3) +
+  scale_color_manual(values = c("black", "cyan"))
+```
+
+
+### Over-Represented Indications
+
+- Are there particular indications that are over-represented amongst the significant drugs as compared to all queries?
+
+- First, check how many indication-drug pairs are already present in the results table. 
+
+- In the HUVEC cell line, there are 90 / 393 drugs (23%) from the results that have indication-drug pairs. 
+
+```{r}
+nIndicationsInHUVEC <- full_table %>%
+  dplyr::filter(cell == "HUVEC") %>%
+  .$indication_class %>% unique %>% length
+
+nDrugsInHUVEC <- full_table%>%
+  dplyr::filter(cell == "HUVEC") %>%
+  .$pert_iname %>% unique %>% length
+
+nDrugIndicationPairsHUVEC <- full_table %>%
+  dplyr::filter(cell == "HUVEC") %>%
+  dplyr::filter(!is.na(indication_class) & 
+                  !is.na(pert_iname)) %>% 
+  nrow()
+nDrugIndicationPairsHUVEC
+
+nDrugIndicationPairsHUVEC/nDrugsInHUVEC
+```
+
+In terms of significant drugs, there are 34 in HUVECs, with 9 of them having an indication. There are only 5 unique indications. 
+
+```{r}
+nDrugsInHUVECSig <- full_table %>%
+  dplyr::filter(cell == "HUVEC") %>%
+  dplyr::filter(sig == TRUE) %>%
+  .$pert_iname %>% unique %>% length
+nDrugsInHUVECSig
+
+nIndicationsInHUVECSig <- full_table %>%
+  dplyr::filter(cell == "HUVEC") %>%
+  dplyr::filter(sig == TRUE) %>%
+  .$indication_class %>% unique %>% length
+nIndicationsInHUVECSig
+
+nDrugIndicationPairsHUVECSig <- full_table %>%
+  dplyr::filter(cell == "HUVEC") %>%
+  dplyr::filter(sig == TRUE) %>%
+  dplyr::filter(!is.na(pert_iname), !is.na(indication_class)) %>%
+  nrow()
+nDrugIndicationPairsHUVECSig
+```
+
+Lets see if we can improve this through the indications from DrugBank. 
+
+```{r}
+indications_drugbank <- readRDS(here("data", "indications_full_final_syn.rds")) %>%
+  dplyr::mutate(name = tolower(name)) %>%
+  dplyr::mutate(synonym = tolower(synonym))
+```
+
+- Quick check of how many of the DrugBank synonyms are in CMap. Out of the 339 drugs, there are 240 that have indications from the DrugBank table. 
+
+```{r}
+drugsInHuvec <- full_table %>%
+  dplyr::filter(cell == "HUVEC") %>%
+  .$pert_iname %>% unique %>% tolower() 
+length(drugsInHuvec)
+table(drugsInHuvec %in% c(indications_drugbank$synonym, indications_drugbank$name))
+table(drugsInHuvec %in% indications_drugbank$name)
+table(drugsInHuvec %in% indications_drugbank$synonym)
+```
+
+#### Create mapping table 
+
+- This sounds good so let's do the join.
+
+```{r}
+mappingTableDrugIndication <- full_table %>%
+  dplyr::select(pert_iname) %>%
+  dplyr::distinct(.keep_all=T) %>%
+  left_join(indications_drugbank %>% dplyr::select(-synonym) %>% dplyr::distinct(.keep_all = T), by = 
+              c("pert_iname"="name"),
+            multiple = "all") %>%
+  left_join(indications_drugbank %>% dplyr::select(-name,
+                                                   -drug_id,
+                                                   -cas_number) %>%
+              dplyr::distinct(.keep_all = T),
+            by = c("pert_iname"="synonym"),
+            multiple = "all") %>%
+  dplyr::mutate(indication = case_when(
+    !is.na(indication.x) ~ indication.x,
+    !is.na(indication.y) ~ indication.y,
+    TRUE ~ NA
+  )) %>%
+  dplyr::select(-indication.x, -indication.y) %>%
+  dplyr::distinct(.keep_all=T) %>%
+  dplyr::filter(!is.na(indication))
+
+
+View(mappingTableDrugIndication)
+
+mappingTableDrugIndication %>%
+  saveRDS(here("data", "mappingTableDrugIndication.rds"))
+
+mappingTable2 <- mappingTableDrugIndication %>%
+  dplyr::select(pert_iname, indication) %>%
+  tidyr::nest(pert_iname) 
+mappingTable2$data %<>% lapply(function(x){
+  x %>% unlist %>% unname
+})
+mappingTable2 %<>%
+  dplyr::rename(drugs = data)
+View(mappingTable2)
+mappingTable2 %>%
+  saveRDS(here("data", "mappingTable2.rds"))
+```
+
+#### Join mapping table to our results
+
+```{r}
+full_table2 <- full_table %>%
+  left_join(
+    mappingTableDrugIndication,
+    by = c("pert_iname"),
+    multiple = "all") 
+                                                          
+ora_indication <- ORAUsingFishersExactTest(
+  full_table2,
+  groupingCol = "indication",
+  test = "hypergeometric")
+
+ora_indication %>% saveRDS(here("data", "ora_indication.rds"))
+
+colnames(ora_indication)
+ora_indication$sig %>% table
+
+View(ora_indication)
+```
+
+
+```{r old_code2, eval=FALSE}
+endo_split_by_indication <- split(full_table,
+                                  f = full_table$indication_class)
+
+cont_tables <- endo_split_by_indication %>%
+  lapply(function(x){
+    n_sig_with_indication = sum(x$sig)
+    n_notsig_with_indication = nrow(x) - n_sig_with_indication
+    n_sig_without_indication = sum(full_table$sig) - n_sig_with_indication
+    n_notsig_without_indication = nrow(full_table) - n_notsig_with_indication
+    
+    res = matrix(
+      c(n_sig_with_indication, n_notsig_with_indication,
+        n_sig_without_indication, n_notsig_without_indication),
+      ncol = 2, byrow = TRUE
+    )
+    
+    return(res)
+  })
+
+p_vals <- list()
+for(indication in names(endo_split_by_indication)){
+  p_vals[[indication]] <- fisher.test(cont_tables[[indication]])$p.value  
+}
+
+p_val_df <- data.frame(
+  indication = names(p_vals),
+  p = p_vals %>% unlist
+)%>%
+  dplyr::mutate(BH_p = p.adjust(p, method="BH"))
+
+View(p_val_df)
+fisher.test(cont_tables$`Adrenergic (ophthalmic)`)
+```
+
+```{r eval=FALSE}
+
+full_table_split_by_cell <- full_table %>%
+  split(x=., f = .$cell) 
+  # lapply(function(x){
+  #   x %>% split(x=., f = .$indication_class)
+  # })
+
+
+endo_split_by_indication2 <- full_table_split_by_cell %>%
+  lapply(function(x){
+    x %>%    split(., f = .$indication_class)
+  })
+    
+cont_tables2 <- endo_split_by_indication2$MCF7 %>%
+  lapply(function(x){
+    n_sig_with_indication = sum(x$sig)
+    n_notsig_with_indication = nrow(x) - n_sig_with_indication
+    n_sig_without_indication = sum(full_table_split_by_cell$MCF7$sig) - n_sig_with_indication
+    n_notsig_without_indication = nrow(full_table_split_by_cell$MCF7) - n_notsig_with_indication
+    
+    res = matrix(
+      c(n_sig_with_indication, n_notsig_with_indication,
+        n_sig_without_indication, n_notsig_without_indication),
+      ncol = 2, byrow = TRUE
+    )
+  })
+
+p_vals <- list()
+for(indication in names(endo_split_by_indication)){
+  p_vals[[indication]] <- fisher.test(cont_tables[[indication]])$p.value  
+}
+
+p_val_df <- data.frame(
+  indication = names(p_vals),
+  p = p_vals %>% unlist
+)%>%
+  dplyr::mutate(BH_p = p.adjust(p, method="BH"))
+
+```
+
+### Over-Represented MOAs
+
+- Here we first split the full table of results to a per-cellline level. 
+
+```{r}
+full_table2 <- full_table %>%
+  tidyr::separate_rows(MOAss, sep = ";") %>%
+  #dplyr::mutate(MOAss = stringr::str_trim(MOAss)) %>%
+  dplyr::filter(!is.na(MOAss)) %>%
+  split(x=., f = .$cell)
+
+ora_moa <- full_table2 %>%
+  lapply(function(x){
+    x %>%
+      ORAUsingFishersExactTest(groupingCol = "MOAss",
+                               test = "fishers")
+  })
+
+ora_moa %>% lapply(function(x){
+  x$sig %>% table
+})
+
+# ora_moa <- ORAUsingFishersExactTest(full_table2,
+#                                     groupingCol = "MOAss",
+#                                     test = "fishers")
+# 
+# View(ora_moa)
+```
+
+
+```{r previous_code_ora, eval=FALSE}
+full_table_split_by_cell <- full_table %>%
+  split(x=., f = .$cell) 
+
+full_table_split_by_cell2 <- full_table_split_by_cell %>%
+  lapply(function(x){
+    x %>%
+      tidyr::separate_rows(MOAss, sep = ";") %>%
+      dplyr::filter(!is.na(MOAss))
+  })
+
+ cont_tables_moa <- list()
+
+for(cellline in names(full_table_split_by_cell2)) {
+  cont_tables_moa[[cellline]] <-
+    full_table_split_by_cell2[[cellline]] %>%
+    split(x=., f = .$MOAss) %>%
+    lapply(function(x) {
+      n_sig_with_indication = sum(x$sig)
+      n_notsig_with_indication = nrow(x) - n_sig_with_indication
+      n_sig_without_indication = sum(full_table_split_by_cell2[[cellline]]$sig) - n_sig_with_indication
+      n_notsig_without_indication = nrow(full_table_split_by_cell2[[cellline]]) - n_notsig_with_indication
+      
+      res = matrix(
+      c(n_sig_with_indication, n_notsig_with_indication,
+        n_sig_without_indication, n_notsig_without_indication),
+      ncol = 2, byrow = TRUE
+    )
+      
+      return(res)
+    })
+}
+
+
+p_vals_moa <- list()
+res_list <- list()
+for(cellline in names(cont_tables_moa)){
+  p_vals_moa[[cellline]] <- list()
+  
+  for(moa in names(cont_tables_moa[[cellline]])){
+    p_vals_moa[[cellline]][[moa]] <- 
+      fisher.test(cont_tables_moa[[cellline]][[moa]])$p.value 
+    
+
+    
+  }
+  res_list[[cellline]] <- 
+    data.frame(moa = names(p_vals_moa[[cellline]]),
+               p = unlist(p_vals_moa[[cellline]]))
+  
+  
+}
+
+moa_results_full_table <- res_list %>% bind_rows(.id = "cell") %>% 
+  dplyr::mutate(sig = p < 0.05) %>%
+  dplyr::group_by(moa) %>%
+  dplyr::mutate(sum = sum(sig)) %>% 
+  dplyr::arrange(desc(sum), moa, cell) 
+
+#moa_results_full_table %>% saveRDS(here("output", #"moa_results_full_table_ppf_vs_veh_moa_overrep.rds"))
+
+moa_results_full_table <- readRDS(here("output", "moa_results_full_table_ppf_vs_veh_moa_overrep.rds"))
+
+p_val_df_moa <- data.frame(
+  indication = names(p_vals),
+  p = p_vals %>% unlist
+)%>%
+  dplyr::mutate(BH_p = p.adjust(p, method="BH"))
+
+```
+
+## TSEA
+
+### Define Significant and Universe Sets
+
+```{r }
+drugs_huvec <- full_table %>%
+  dplyr::filter(cell == "HUVEC" & sig == TRUE) %>%
+  dplyr::pull(pert_iname) %>% unique
+
+# The following will be used as the background.  TBC
+# Doesn't work for some reason
+drugs_univ <- full_table %>%
+  dplyr::filter(cell == "HUVEC") %>%
+  dplyr::pull(pert_iname) %>% unique %>%
+  get_targets() %>%
+  tidyr::separate_rows(t_gn_sym, sep = ";") %>%
+  dplyr::mutate(t_gn_sym = stringr::str_trim(t_gn_sym)) %>%
+  dplyr::pull("t_gn_sym")
+```
+
+### GO Over-Representation
+
+```{r}
+target_ora_go <- tsea_dup_hyperG(drugs = drugs_huvec,
+                          universe= "Default",
+                          type = "GO",
+                          ont = "MF",
+                          pvalueCutoff = 0.5,
+                          pAdjustMethod = "BH",
+                          qvalueCutoff = 0.1,
+                          minGSSize = 10,
+                          maxGSSize = 500) 
+
+target_ora_go2 <- target_ora_go %>%
+  result %>%
+  as.data.frame %>%
+  dplyr::mutate(sig = qvalue <= 0.05)
+View(target_ora_go2)
+```
+
+### KEGG
+
+```{r}
+target_ora_kegg  <- tsea_dup_hyperG(drugs = drugs_huvec,
+                          universe="Default",
+                          type = "KEGG",
+                          pvalueCutoff = 0.5,
+                          pAdjustMethod = "BH",
+                          qvalueCutoff = 0.1,
+                          minGSSize = 10,
+                          maxGSSize = 500)
+
+target_ora_kegg2 <- target_ora_kegg %>%
+  result %>%
+  as.data.frame %>%
+  dplyr::mutate(sig = qvalue <= 0.05)
+View(target_ora_go2)
+```
+
+
+```{r eval=FALSE}
+target_ora_reactome  <- tsea_dup_hyperG(drugs = drugs_huvec,
+                                 type = "Reactome",
+                                 pvalueCutoff = 0.5,
+                                 pAdjustMethod = "BH",
+                                 qvalueCutoff = 0.5,
+                                 readable=TRUE)
+
+target_ora_reactome2 <- target_ora_reactome %>%
+  result %>%
+  as.data.frame %>%
+  dplyr::mutate(sig = qvalue <= 0.05)
+
+```
+
+## Network Visualisations
+
+- Edges will connect MOAs to drugs and drugs to genes. 
+- The visualizations will be done in Gephi, so the code below is just to generate the edge and node tables that will then be imported into Gephi. 
+
+### Edge Table
+
+```{r}
+# Prepare MOA to Drug edges
+moa_drugs <- full_table %>%
+  dplyr::filter(sig == TRUE) %>%
+  dplyr::select(pert_iname, MOAss) %>%
+  tidyr::separate_rows(MOAss, sep = ";") %>%
+  dplyr::mutate(MOAss = stringr::str_trim(MOAss))  %>%
+  set_colnames(c("pert_iname", "MOA"))%>%
+  dplyr::filter(!is.na(MOA)) %>%
+  dplyr::distinct(.keep_all=T) 
+# Keep relevant columns and rename to Gephi conventions:
+moa_drugs2 <- moa_drugs %>%
+  dplyr::select(MOA, pert_iname) %>%
+  set_colnames(c("source", "target"))
+
+# Prepare drug to gene edges and bind it 
+# with the MOA to drug edges
+edges <- full_table %>%
+  dplyr::filter(sig == TRUE
+                #, 
+               # cell == "HUVEC"
+                ) %>%
+  dplyr::select(pert_iname, t_gn_sym) %>%
+  tidyr::separate_rows(t_gn_sym, sep = ";") %>% 
+  dplyr::mutate(t_gn_sym = stringr::str_trim(t_gn_sym)) %>%
+  dplyr::distinct(.keep_all=TRUE) %>%
+  magrittr::set_colnames(c("source", "target")) %>%
+  bind_rows(moa_drugs2)
+```
+
+### Node Table
+
+```{r}
+# Drugs
+typeMap <- full_table %>%
+  dplyr::filter(sig == TRUE
+                #, 
+               # cell == "HUVEC"
+                ) %>%
+  dplyr::select(pert_iname) %>%
+  dplyr::distinct(.keep_all=T) %>%
+  set_colnames("id") %>%
+  dplyr::mutate(type = "drug")  %>%
+  dplyr::mutate(label = "") %>%
+  dplyr::mutate(size = 10)
+
+typeMap2 <- full_table %>%
+  dplyr::filter(sig == TRUE) %>%
+  dplyr::select(pert_iname, t_gn_sym) %>%
+  tidyr::separate_rows(t_gn_sym, sep = ";") %>% 
+  dplyr::mutate(t_gn_sym = stringr::str_trim(t_gn_sym)) %>%
+  dplyr::select(t_gn_sym) %>%
+  dplyr::distinct(.keep_all=TRUE) %>%
+  set_colnames("id") %>%
+  dplyr::mutate(type = "gene") %>%
+  dplyr::mutate(label = "") %>%
+  dplyr::mutate(size = 1)
+
+typeMap3 <- data.frame(id = moa_drugs2$source, 
+                       type = "MOA") %>%
+  dplyr::mutate(label = id) %>%
+  dplyr::mutate(size = 50)
+
+nodes <- bind_rows(typeMap,typeMap2,typeMap3)%>%
+  dplyr::distinct(id, type, .keep_all=TRUE)
+```
+
+### Export node and edge tables
+
+- These will be imported into Gephi for visualization. 
+
+```{r}
+edges %>% readr::write_csv(here("data", "edges.csv"))
+nodes %>% readr::write_csv(here("data", "nodes.csv"))
+```
+
+
+### Sub-Networks
+
+#### mTOR-focused network
+
+```{r}
+relevent_drugs <- edges %>%
+  dplyr::filter(grepl("mTOR|^MTOR", source) ) 
+
+relevant_genes_of_drugs <- edges %>%
+  dplyr::filter(source %in% relevent_drugs$target)
+
+edges_mtor <- bind_rows(relevent_drugs, relevant_genes_of_drugs)
+
+nodes_mtor <- data.frame(id = c(edges_mtor$source, edges_mtor$target)) %>%
+  left_join(nodes, by = "id")
+
+nodes_mtor <- nodes %>%
+  dplyr::filter(grepl("mTOR|MTOR", id))
+
+edges_mtor %>% readr::write_csv(here("data", "edges_mtor.csv"))
+nodes_mtor %>% readr::write_csv(here("data", "nodes_mtor.csv"))
+```
+
+#### Statin-focused network
+
+```{r}
+relevent_drugs <- edges %>%
+  dplyr::filter(grepl("HMGCR", source) ) 
+
+relevant_genes_of_drugs <- edges %>%
+  dplyr::filter(source %in% relevent_drugs$target)
+
+edges_statin <- bind_rows(relevent_drugs, relevant_genes_of_drugs)
+
+nodes_statin <- data.frame(id = c(edges_statin$source, edges_statin$target)) %>%left_join(nodes, by = "id")
+
+nodes_statin <- nodes %>%
+  dplyr::filter(grepl("HMGCR", id))
+
+edges_statin %>% readr::write_csv(here("data", "edges_statin.csv"))
+nodes_statin %>% readr::write_csv(here("data", "nodes_statin.csv"))
+```
+
+#### HUVEC-focused network
+
+```{r}
+# Prepare MOA to Drug edges
+moa_drugs_huvec <- full_table %>%
+  dplyr::filter(cell == "HUVEC" 
+               # & sig == TRUE
+                ) %>%
+  dplyr::select(pert_iname, MOAss) %>%
+  tidyr::separate_rows(MOAss, sep = ";") %>%
+  dplyr::mutate(MOAss = stringr::str_trim(MOAss))  %>%
+  set_colnames(c("pert_iname", "MOA"))%>%
+  dplyr::filter(!is.na(MOA)) %>%
+  dplyr::distinct(.keep_all=T) 
+
+sig_drugs <- full_table %>%
+  dplyr::filter(cell == "HUVEC" & sig == TRUE) %>%
+  dplyr::pull(pert_iname)
+
+moa_drugs_huvec2 <- moa_drugs_huvec %>%
+  dplyr::select(MOA, pert_iname) %>%
+  set_colnames(c("source", "target")) %>%
+  dplyr::distinct(source, target, .keep_all=T) #%>%
+ # dplyr::filter(target %in% sig_drugs)
+
+# Prepare drug to gene edges and bind it 
+# with the MOA to drug edges
+edges_huvec <- full_table %>%
+  dplyr::filter(cell == "HUVEC" #& sig == TRUE
+                #, 
+               # cell == "HUVEC"
+                ) %>%
+  dplyr::select(pert_iname, t_gn_sym) %>%
+  tidyr::separate_rows(t_gn_sym, sep = ";") %>% 
+  dplyr::mutate(t_gn_sym = stringr::str_trim(t_gn_sym)) %>%
+  dplyr::distinct(.keep_all=TRUE) %>%
+  magrittr::set_colnames(c("source", "target")) %>%
+  bind_rows(moa_drugs_huvec2)
+```
+
+- Nodes table
+
+```{r}
+# Drugs
+typeMapp <- full_table %>%
+  dplyr::filter(cell == "HUVEC" #& sig == TRUE
+                #, 
+               # cell == "HUVEC"
+                ) %>%
+  dplyr::select(pert_iname) %>%
+  dplyr::distinct(.keep_all=T) %>%
+  set_colnames("id") %>%
+  dplyr::mutate(type = "drug")  %>%
+  dplyr::mutate(label = id) %>%
+  dplyr::mutate(size = 10) %>%
+  left_join(sig_drugs, by = c("id"="pert_iname"))
+
+typeMapp2 <- full_table %>%
+  dplyr::filter(cell == "HUVEC" #& sig == TRUE
+                ) %>%
+  dplyr::select(pert_iname, t_gn_sym) %>%
+  tidyr::separate_rows(t_gn_sym, sep = ";") %>% 
+  dplyr::mutate(t_gn_sym = stringr::str_trim(t_gn_sym)) %>%
+  dplyr::select(t_gn_sym) %>%
+  dplyr::distinct(.keep_all=TRUE) %>%
+  set_colnames("id") %>%
+  dplyr::mutate(type = "gene") %>%
+  dplyr::mutate(label = "") %>%
+  dplyr::mutate(size = 1)
+
+
+
+typeMapp3 <- data.frame(id = moa_drugs_huvec2$source, 
+                       type = "MOA") %>%
+  dplyr::distinct(.keep_all=T) %>%
+  dplyr::mutate(label = id) %>%
+  dplyr::mutate(size = 50) 
+
+nodes_huvec <- bind_rows(typeMapp,typeMapp2,typeMapp3)%>%
+  dplyr::distinct(id, type, .keep_all=TRUE)
+```
+
+- Export tables:
+
+```{r}
+edges_huvec %>% readr::write_csv(here("data", "edges_huvec_ALL.csv"))
+nodes_huvec %>% readr::write_csv(here("data", "nodes_huvec_ALL.csv"))
+```
+
+

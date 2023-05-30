@@ -1,0 +1,18 @@
+---
+title: "scratch_gcmap"
+author: "Nhi Hin"
+date: "2023-02-15"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+## Introduction
+
+```{r}
+library(gCMAP)
+
+KEGG.hs <- KEGG2cmap( species = "hsa", annotation.package = "org.Hs.eg.db" )
+?fisher_score
+```
+

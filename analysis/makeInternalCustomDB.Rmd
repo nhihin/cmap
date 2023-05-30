@@ -1,0 +1,84 @@
+---
+title: "makeInternalCustomDB"
+author: "Nhi Hin"
+date: "2023-02-16"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+## Audit on transcriptomics datasets
+
+Prioritse the datasets that have at least 3 samples?
+
+```{r}
+most_recent_samplesheet <- list.files("/mnt/home/alkahest.com/dleone/Documents/Analyses/library_processors/nextera_processors/FACS_annotations/", pattern = "*samplesheet.*.tsv", full.names = TRUE) %>%
+  .[length(.)]
+
+# Ensure young refers to those ~3 months old with 
+# some wobble. 
+samplesheet <- readr::read_tsv(most_recent_samplesheet) %>%
+  dplyr::mutate(age_binary = case_when(
+    age_prep < 5 ~ "young", 
+    TRUE ~ "aged"
+  ))
+
+```
+
+- Get the groups, defined on brain region, treatment label, and animal_ID. 
+
+```{r}
+getAnimalIDs <- samplesheet %>%
+  dplyr::select(origin_major,
+                origin_minor,
+                treatment_label,
+                age_binary,
+                animal_ID,
+                seq_batch) %>%
+  dplyr::distinct(animal_ID, .keep_all=T) %>%
+  tidyr::nest(data = animal_ID) %>%
+  rowwise() %>%
+  dplyr::mutate(data = paste(data, sep = "__")) %>%
+  dplyr::distinct(.keep_all = TRUE) %>%
+  filter(!is.na(seq_batch)) #Remove ones which havent been seq yet.
+
+allGroups <- samplesheet %>%
+  dplyr::select(origin_major,
+                origin_minor,
+                treatment_label,
+                age_binary,
+                animal_ID,
+                seq_batch) %>%
+  dplyr::filter(!is.na(seq_batch)) %>%
+  dplyr::group_by(origin_major,
+                  origin_minor,
+                  age_binary,
+                  treatment_label,
+                  seq_batch) %>%
+  dplyr::summarise(n = n()) %>%
+  dplyr::left_join(getAnimalIDs)
+
+allGroups %>% readr::write_csv(here("data", "allGroups.csv"))
+```
+
+- Liver datasets
+
+```{r}
+liverGroups <- allGroups %>%
+  dplyr::filter(origin_major == "Liver") %>%
+  dplyr::arrange(treatment_label, seq_batch)
+View(liverGroups)
+
+liverGroups %>% readr::write_csv(here("data", "liver_10x_summary2.csv"))
+```
+
+- CNS datasets
+
+```{r}
+cnsGroups <- allGroups %>%
+  dplyr::filter(origin_major == "Brain") %>%
+  dplyr::arrange(origin_minor, treatment_label, age_binary, seq_batch)
+View(cnsGroups)
+cnsGroups %>% readr::write_csv(here("data", "cns_10x_summary2.csv"))
+```
+

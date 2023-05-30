@@ -1,0 +1,761 @@
+---
+title: "scratch_drugbank"
+author: "Nhi Hin"
+date: "2023-03-09"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+## Load Packages
+```{r}
+library(Seurat)
+library(dplyr)
+library(magrittr)
+library(readr)
+library(tibble)
+library(ggplot2)
+library(SingleCellExperiment)
+library(scater)
+library(here)
+library(rhdf5)
+library(signatureSearch)
+library(signatureSearchData)
+library(HDF5Array)
+library(ExperimentHub)
+library(fuzzyjoin)
+```
+
+
+## Introduction
+
+- The drug => indication metadata in CMap as provided by *signatureSearch* is quite lacking. Most drugs don't have indications provided. 
+
+- We have a professional account to access DrugBank database. The purpose of this notebook is to explore the info available in this database and get it into a form that can interface with *signatureSearch*.
+
+## Import Data
+
+```{r}
+drugbank_dir <- "~/Downloads/Alkahest_DrugBank_SQLite"
+
+all_drugbank_tables <-
+  list.files(drugbank_dir, 
+             pattern = ".csv", 
+             full.names = TRUE) %>%
+  set_names(gsub(
+    x = list.files(drugbank_dir, 
+                   pattern = ".csv",
+                   full.names = FALSE),
+    pattern = ".csv",
+    replacement = ""
+  )) %>%  lapply(readr::read_csv)
+```
+
+## Get indications and join to relevant tables
+
+- Indication_drug
+
+```{r}
+all_drugbank_tables$indication_drugs$indication_id %>% unique %>% length
+
+all_drugbank_tables$indication_drugs$drug_id %>% unique %>% length
+```
+
+
+- Structured_indications table contains the `indication_id` (stored in `id`), as well as the `drug_id`. 
+
+```{r}
+View(all_drugbank_tables$structured_indications)
+all_drugbank_tables$structured_indications$id %>% unique %>% length
+all_drugbank_tables$structured_indications$drug_id %>% unique %>% length
+```
+
+- Overlap between first two tables:
+
+- There are more indications in the `structured_indications` table, but all the ones in `indication_drugs` overlap with those in `structured_indications`:
+
+```{r}
+table(unique(all_drugbank_tables$indication_drugs$indication_id) %in% unique(all_drugbank_tables$structured_indications$id))
+```
+
+- The drugs in both tables do not perfectly overlap. 151 drugs are found in `indication_drugs` but NOT `structured_indications`. 2,703 drugs are found in `structured_indications` but NOT in `indication_drugs`.
+
+```{r}
+table(unique(all_drugbank_tables$indication_drugs$drug_id) %in% unique(all_drugbank_tables$structured_indications$drug_id))
+
+table(unique(all_drugbank_tables$structured_indications$drug_id) %in% unique(all_drugbank_tables$indication_drugs$drug_id))
+```
+
+- Necause of this, we will make a full joined table that contains the unity of all the drug-indication pairs from the above 2 tables
+
+```{r}
+structured_indications2 <- all_drugbank_tables$structured_indications %>%
+  dplyr::rename(
+    indication_id = id
+  ) 
+
+indication_drugs2 <- all_drugbank_tables$indication_drugs
+
+indications_drugs_pairs <- full_join(structured_indications2,
+                                     indication_drugs2,
+                                     by = c("indication_id", "drug_id"))
+
+indications_drugs_pairs %>% dim
+indications_drugs_pairs$indication_id %>% unique %>% length
+indications_drugs_pairs$drug_id %>% unique %>% length
+```
+
+
+
+- To figure out which condition the `indication_id` refers to, we also need a table that joins `indication_id` and `condition_id`
+
+```{r}
+View(all_drugbank_tables$indication_conditions)
+```
+
+- To figure out what the actual names of the conditions are that are referred to by `condition_id`, we need to join a table that includes both `condition_id` and the names of the conditions, which in this case are stored in the `title` column of the following table. The following table's `condition_id` is instead just named `id` but they refer to the same ID. 
+
+```{r}
+View(all_drugbank_tables$conditions)
+```
+
+- Lastly, the last relevant table is the `drugs` table, which contains both `drug_id` as well as the actual names of the drugs, under `name` column. 
+
+```{r}
+View(all_drugbank_tables$drugs)
+```
+
+- With the above tables, we will now perform a series of `full_joins` by the relevant IDs. I will also tidy the data (removing special characters & whitespace, renaming some columns, and also removing any duplicate rows). 
+
+```{r}
+
+indications_struc <- indications_drugs_pairs %>%
+  dplyr::full_join(all_drugbank_tables$indication_conditions,
+                   by = "indication_id") %>%
+  dplyr::full_join(all_drugbank_tables$conditions,
+                   by = c("condition_id"="id")) %>%
+  dplyr::arrange(drug_id) %>%
+  dplyr::full_join(all_drugbank_tables$drugs, by = c("drug_id"="id")) %>%
+  set_colnames(gsub(
+    x = colnames(.),
+    pattern = "\\|",
+    replacement = ""
+  )) %>% 
+  dplyr::select(
+    drug_id,
+    drugbank_id.y, 
+    name,
+    indication_id,
+    title,
+    kind,
+    off_label,
+    otc_use,
+    country,
+    dose_form,
+    relationship.x,
+    relationship.y,
+    condition_id,
+    meddra_id,
+    icd10_id,
+    snomed_id,
+    type,
+    description,
+    simple_description,
+    clinical_description,
+    cas_number,
+    protein_formula,
+    protein_weight,
+    investigational,
+    approved,
+    vet_approved,
+    experimental,
+    nutraceutical,
+    illicit,
+    withdrawn,
+    starts_with("moldb"),
+    synthesis_patent_id,
+    biotech_kind
+  ) %>%
+  # Clean up some columns:
+  dplyr::mutate(
+    dose_form = gsub(x = dose_form, pattern = "\\|",
+                     replacement = ""),
+    relationship.x = gsub(x = relationship.x, pattern = "\\|",
+                     replacement = ""),
+    relationship.y = gsub(x = relationship.y, pattern = "\\|",
+                     replacement = ""),
+    biotech_kind = gsub(x = biotech_kind, pattern = "\\|",
+                     replacement = ""),
+    title = gsub(x = title, pattern = ":|_|'|\"|“|”", replacement = "")
+  ) %>%
+  dplyr::mutate(title = stringr::str_trim(title)) %>%
+  dplyr::filter(!is.na(drug_id)) %>%
+  dplyr::distinct(.keep_all = TRUE)
+
+View(indications_struc)
+
+# indications_struc <- all_drugbank_tables$structured_indications %>%
+#   dplyr::full_join(all_drugbank_tables$indication_conditions,
+#                    by = c("id" = "indication_id")) %>%
+#   dplyr::full_join(all_drugbank_tables$conditions,
+#                    by = c("condition_id" = "id")) %>%
+#   dplyr::arrange(drug_id) %>%
+#   dplyr::rename(indication_id = id) %>%
+#   #dplyr::full_join(all_drugbank_tables$indication_drugs, by )
+#   dplyr::full_join(all_drugbank_tables$drugs, by = c("drug_id" = "id")) %>%
+#   set_colnames(gsub(
+#     x = colnames(.),
+#     pattern = "\\|",
+#     replacement = ""
+#   )) %>%
+#   dplyr::select(
+#     drug_id,
+#     drugbank_id.y, 
+#     name,
+#     indication_id,
+#     title,
+#     kind,
+#     off_label,
+#     otc_use,
+#     country,
+#     dose_form,
+#     relationship,
+#     condition_id,
+#     meddra_id,
+#     icd10_id,
+#     snomed_id,
+#     type,
+#     description,
+#     simple_description,
+#     clinical_description,
+#     cas_number,
+#     protein_formula,
+#     protein_weight,
+#     investigational,
+#     approved,
+#     vet_approved,
+#     experimental,
+#     nutraceutical,
+#     illicit,
+#     withdrawn,
+#     starts_with("moldb"),
+#     synthesis_patent_id,
+#     biotech_kind
+#   ) %>%
+#   # Clean up some columns:
+#   dplyr::mutate(
+#     dose_form = gsub(x = dose_form, pattern = "\\|",
+#                      replacement = ""),
+#     relationship = gsub(x = relationship, pattern = "\\|",
+#                      replacement = ""),
+#     biotech_kind = gsub(x = biotech_kind, pattern = "\\|",
+#                      replacement = ""),
+#     title = gsub(x = title, pattern = ":|_|'|\"|“|”", replacement = "")
+#   ) %>%
+#   dplyr::mutate(title = stringr::str_trim(title)) %>%
+#   dplyr::filter(!is.na(drug_id)) %>%
+#   dplyr::distinct(.keep_all = TRUE)
+# 
+# View(indications_struc)
+
+dim(indications_struc)
+
+indications_struc %>% saveRDS(here("output", "indications_struc.rds"))
+indications_struc %>% readr::write_csv(here("output", "indications_drugbank.csv"))
+```
+
+## Summary of drugs and indications
+
+### Number of Drugs
+
+- Number of drugs in the database
+
+```{r}
+nDrugs <- indications_struc$name %>% unique %>% length
+nDrugs
+```
+
+### Number of Indications
+
+- Number of indications in the database
+
+```{r}
+nIndications <- indications_struc$title %>% unique %>% length
+nIndications
+```
+
+### Number of drugs that DO NOT have indications:
+
+```{r}
+nDrugs_noIndic <- indications_struc %>% 
+  dplyr::filter(is.na(title)) %>%
+  dplyr::pull(name) %>% unique %>% length
+
+nDrugs_noIndic
+nDrugs_noIndic/nDrugs
+```
+
+74.5% of drugs do not have indications associated with them...? 
+
+### Number of indications per drug
+
+- The mean indications per drug is ~6. Most drugs (75%) have 4 associated indication or less. 
+
+```{r}
+indications_struc %>%
+  dplyr::filter(!is.na(title)) %>%
+  dplyr::group_by(title) %>%
+  dplyr::summarise(n=n()) %>%
+  .$n %>% summary()
+```
+
+- Histogram summary, for the drugs that have indications associated with them. 
+
+```{r}
+upTo50 <- indications_struc %>%
+  dplyr::filter(!is.na(title)) %>%
+  dplyr::group_by(title) %>%
+  dplyr::summarise(n=n()) %>% 
+  ggplot(aes(x = n)) +
+  geom_histogram(color = "black", fill = "white", bins = 50) +
+  labs(x = "Number of indications targeted by a drug",
+       y = "Frequency") +
+  #ggtitle("Number of indications per drug") +
+  xlim(c(0,50)) +
+  ylim(c(0,1500))
+
+entirePlot <- 
+  indications_struc %>%
+  dplyr::filter(!is.na(title)) %>%
+  dplyr::group_by(title) %>%
+  dplyr::summarise(n=n()) %>% 
+  ggplot(aes(x = n)) +
+  geom_histogram(color = "black", fill = "white", bins = 50) +
+  labs(x = "Number of indications targeted by a drug",
+       y = "Frequency") 
+  #coord_cartesian(xlim = c(0, 50))
+
+cowplot::plot_grid(upTo50, entirePlot)
+  
+```
+
+## Substring Matching - Extracting the indication from the description
+
+- I noticed that there are many drugs which have the indication included in the description, but not in the indication column itself. 
+
+- So of the 11,498 drugs which have no indication in the `title` column, 5,315 of them have a `description`. 
+
+```{r}
+indications_struc %>%
+  dplyr::filter(is.na(title)) %>%
+  dplyr::filter(!is.na(clinical_description) | 
+                  !is.na(simple_description) |
+                  !is.na(description)) %>%
+  nrow()
+```
+
+- A way to address this is using substring matching. First we need to define a list of strings representing indications which we can match against the description columns. 
+
+### Indications
+
+- To keep the terminology consistent, we will use the `title` from the already labelled indications in the dataset. 
+
+```{r}
+indications_ls <- indications_struc$title %>% unique %>%
+  tolower() %>%
+  gsub(x = . , pattern = "\\(.*\\)", replacement = "") %>%
+  gsub(x = . , pattern = "\\(|\\)", replacement = "") %>%
+  .[order(nchar(.))] %>%
+  rev
+length(indications_ls)
+indications_string <- indications_ls %>%
+ paste(., collapse='|')
+
+
+# OLD CODE - I tried including the DID's indications too, but 
+# due to slight differences in wording from the DrugBank database
+# it resulted in much redundancy in the results. 
+# did <- readr::read_csv(here("data", "13326_2016_110_MOESM1_ESM.csv"), skip=2)
+# head(did) %>% View
+# 
+# indications_string2 <- did$`target/substring` %>% unique %>% 
+#   tolower() %>% 
+#   gsub(x = ., pattern = ",.*$", replacement = "") %>%
+#   gsub(x = . , pattern = "\\(.*\\)", replacement = "") %>%
+#   gsub(x = . , pattern = "\\(|\\)", replacement = "") %>%
+#   gsub(x = ., pattern = "\\[.*\\]", replacement = "", perl=T) %>%
+#   gsub(x = ., pattern = "\\[|\\]", replacement = "", perl=T) %>%
+#   stringr::str_squish() %>%
+#   unique  %>%
+#   paste(., collapse='|' ) 
+# indications_string2
+# 
+# test <- did$`target/substring` %>% unique %>% 
+#   tolower() %>% 
+#   gsub(x = ., pattern = ",.*$", replacement = "") %>%
+#   gsub(x = . , pattern = "\\(.*\\)", replacement = "") %>%
+#   gsub(x = . , pattern = "\\(|\\)", replacement = "") %>%
+#   gsub(x = ., pattern = "\\[.*\\]", replacement = "", perl=T) %>%
+#   gsub(x = ., pattern = "\\[|\\]", replacement = "", perl=T) %>%
+#   stringr::str_squish()
+# 
+# keepTheseCond <- test %>% lapply(function(x){nchar(x)>3}) %>%
+#   unlist()
+# 
+# indications_string2 <- test[keepTheseCond] %>% unique  %>%
+#   paste(., collapse='|' ) 
+# 
+# indications_string_final <- paste0(indications_string, 
+#                                    "|", indications_string2)
+```
+
+### Descriptions
+
+- Prepare list of descriptions to match against. This is the query text from which we will perform substring matching, prepared from three different description columns within the Drugbank database. 
+
+- To keep things consistent, convert entire descriptions to lower case and remove brackets and anything between brackets. This is the same processing that will be applied to the `title`s themselves. 
+
+```{r}
+descs <- indications_struc %>%
+  dplyr::mutate(full_description = paste0(clinical_description, 
+                                          " ",
+                                          simple_description,
+                                          " ",
+                                          description)) %>%
+  dplyr::mutate(full_description = tolower(full_description)) %>%
+  dplyr::mutate(full_description = gsub(x = full_description,
+                                        pattern = "\\(.*\\)", 
+                                        replacement = "")) %>%
+  dplyr::mutate(full_description = gsub(x = full_description,
+                                        pattern = "\\(|\\)", 
+                                        replacement = "") ) %>%
+  dplyr::pull(full_description) %>%
+  unique %>%
+  set_names(paste0("descTempID", 1:length(.)))
+
+# Approx 8800 unique full descriptions. 
+length(descs)
+descs[[1]]
+```
+
+### Substring Matching Step
+
+- The substring matching step is below. The str_extract_all uses regex() so it does take a while to run, about 10 mins or so.
+- Look into replacing with https://cran.r-project.org/web/packages/AhoCorasickTrie/AhoCorasickTrie.pdf Aho-Corasick algorithm at some point which is supposed to be the optimal faster algorithm for this. 
+
+```{r eval=FALSE}
+library(AhoCorasickTrie)
+descToIndications <- AhoCorasickSearchList(
+  keywords = indications_ls,
+  textList = descs, 
+  alphabet = "ascii")
+
+# I think there is a memory leak somewhere bc this uses 
+# 100Gb> of RAM which seems weird. 
+```
+
+
+```{r}
+library(parallel)
+descToIndications <- descs %>%
+  mclapply(function(x){
+    stringr::str_extract_all(x, 
+                         pattern = indications_string)
+  })
+
+names(descToIndications) <- names(descs)
+
+descToIndications2 <- descToIndications %>%
+  lapply(function(x){
+    x[[1]] %>% stringr::str_trim() %>% unique
+  })
+
+length(descToIndications2)
+
+descToIndications3 <- descToIndications2 %>%
+  lapply(function(x){
+    paste0(x, collapse = ",")
+  })
+
+descToIndications_df <- data.frame(
+  full_description = descs,
+  full_description_id = names(descs)
+)
+descToIndications_df$keywords <- unlist(descToIndications3)
+```
+
+### Join back to full data
+
+```{r}
+indications_full <- indications_struc %>%  dplyr::mutate(full_description = paste0(clinical_description, 
+                                          " ",
+                                          simple_description,
+                                          " ",
+                                          description)) %>%
+  dplyr::mutate(full_description = tolower(full_description)) %>%
+  dplyr::mutate(full_description = gsub(x = full_description,
+                                        pattern = "\\(.*\\)", 
+                                        replacement = "")) %>%
+  dplyr::mutate(full_description = gsub(x = full_description,
+                                        pattern = "\\(|\\)", 
+                                        replacement = "") )  %>%
+  dplyr::left_join(descToIndications_df, by = "full_description") %>%
+  dplyr::mutate(title = tolower(title)) %>%
+  dplyr::mutate(title = gsub(x = title,
+                                        pattern = "\\(.*\\)", 
+                                        replacement = "")) %>%
+  dplyr::mutate(title = gsub(x = title,
+                                        pattern = "\\(|\\)", 
+                                        replacement = "") )  %>%
+  dplyr::mutate(newIndication = case_when(
+    !is.na(title) ~ title,
+    TRUE ~ keywords
+  )) %>%
+  tidyr::separate_rows(newIndication, sep = ",") %>%
+  dplyr::mutate(newIndication = stringr::str_trim(newIndication)) %>%
+  dplyr::mutate(newIndication = case_when(
+    nchar(newIndication) == 0 ~ NA,
+    newIndication == "NA" ~ NA,
+    TRUE ~ newIndication
+  )) %>%
+  dplyr::mutate(hasIndication = !is.na(newIndication))
+
+indications_full$hasIndication %>% table 
+
+dim(indications_full)
+indications_full$name %>% unique %>% length
+```
+
+OK, so now, the majority of rows appear to have indications associated with them. 
+
+
+## Tidy up and prepare final drug-indication mappings
+
+```{r}
+indications_full_final <- indications_full %>%
+  dplyr::select(drug_id, name, cas_number, newIndication) %>%
+  dplyr::rename(indication = newIndication) %>%
+  dplyr::distinct(name, cas_number, indication,
+                  .keep_all=TRUE) %>%
+  dplyr::filter(!is.na(indication)) %>%
+  dplyr::filter(!is.na(name))
+dim(indications_full_final)
+indications_full_final$name %>% unique %>% length
+indications_full_final$cas_number %>% unique %>% length
+indications_full_final$indication %>% unique %>% length
+indications_full_final$drug_id %>% unique %>% length
+
+View(indications_full_final)
+
+indications_full_final %>% saveRDS(here("data", "indications_full_final2.rds"))
+```
+
+### Import Synonyms
+
+```{r}
+indications_full_final_syn <- indications_full_final %>%
+  dplyr::left_join(all_drugbank_tables$drug_synonyms %>%
+                     dplyr::select(drug_id, synonym),
+                   by = "drug_id", multiple = "all")
+
+indications_full_final_syn %>%
+  saveRDS(here("data", "indications_full_final_syn.rds"))
+
+```
+
+
+### Number of indications per drug (again)
+
+- The mean indications per drug is now 4.6.  
+
+```{r}
+indications_full_final %>%
+  dplyr::filter(!is.na(indication)) %>%
+  dplyr::group_by(indication) %>%
+  dplyr::summarise(n=n()) %>% 
+  .$n %>% summary()
+```
+
+- Histogram summary, for the drugs that have indications associated with them. 
+
+```{r}
+upTo50_2 <- indications_full_final %>%
+  dplyr::filter(!is.na(indication)) %>%
+  dplyr::group_by(indication) %>%
+  dplyr::summarise(n=n()) %>% 
+  ggplot(aes(x = n)) +
+  geom_histogram(color = "black", fill = "white", bins = 50) +
+  labs(x = "Number of indications targeted by a drug",
+       y = "Frequency") +
+  #ggtitle("Number of indications per drug") +
+  xlim(c(0,50)) +
+  ylim(c(0,1500))
+
+entirePlot <- 
+  indications_full_final %>%
+  dplyr::filter(!is.na(indication)) %>%
+  dplyr::group_by(indication) %>%
+  dplyr::summarise(n=n()) %>% 
+  ggplot(aes(x = n)) +
+  geom_histogram(color = "black", fill = "white", bins = 50) +
+  labs(x = "Number of indications targeted by a drug",
+       y = "Frequency") 
+  #coord_cartesian(xlim = c(0, 50))
+
+cowplot::plot_grid(upTo50_2, entirePlot)
+  
+```
+
+
+## Try another database (DID)
+
+See https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5223332/ 
+
+```{r}
+did <- readr::read_csv(here("data", "13326_2016_110_MOESM1_ESM.csv"), skip=2)
+head(did) %>% View
+
+# Number of unique indications. 
+did$`target/substring` %>% unique %>% length
+
+#raw_drug_name and PT...6
+```
+
+### Extract relevant col
+
+```{r}
+did_subset <-
+  did %>% dplyr::select(
+    PT...30,
+    `PT ("name")`,
+    ends_with("CAS#"),
+    ends_with("substring")
+  ) %>%
+  dplyr::rename(name = PT...30,
+                name2 = `PT ("name")`,
+                CAS = `Preferred CAS#`,
+                indication = `target/substring`) %>%
+  dplyr::mutate(name2 = case_when(
+    is.na(name2) ~ name,
+    TRUE ~ name2
+  )) %>%
+  dplyr::mutate(name2 = tolower(name2)) %>%
+  dplyr::select(-name) %>%
+  dplyr::rename(name = name2)
+```
+
+## Worth joining by CAS?
+
+```{r}
+cas_joined <- inner_join(did_subset, indications_full_final,
+                         by = c("CAS"="cas_number"))%>%
+  dplyr::filter(!is.na(CAS))
+dim(cas_joined)
+View(cas_joined)
+```
+
+
+
+```{r}
+descToIndications_df %<>%
+  tidyr::separate_rows(keywords, sep = ",") %>%
+  dplyr::mutate(keywords = case_when(
+    nchar(keywords) == 0 ~ NA,
+    keywords == "NA" ~ NA,
+    TRUE ~ keywords
+  ))
+View(descToIndications_df)
+```
+
+- Join back to the original data
+
+```{r}
+indications_full <- indications_struc %>%
+  dplyr::mutate(full_description = paste0(clinical_description, 
+                                          " ",
+                                          simple_description,
+                                          " ",
+                                          description)) %>%
+  dplyr::left_join(descToIndications_df, by = "full_description")
+  
+View(indications_full)
+```
+
+```{r}
+indications_full %>%
+  dplyr::filter(is.na(title)) %>%
+    dplyr::mutate(hasIndication = !is.na(keywords)|!is.na(title)) %>% View()
+
+.$hasIndication %>% table
+```
+
+## Old Code
+
+
+```{r}
+indications_struc$title
+
+indications_struc2 <- indications_struc %>%
+  dplyr::mutate(indication_from_desc = stringr::str_extract_all(string = clinical_description, pattern = indications_string))
+```
+
+
+## Try another database (DID)
+
+See https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5223332/ 
+
+```{r}
+did <- readr::read_csv(here("data", "13326_2016_110_MOESM1_ESM.csv"), skip=2)
+head(did) %>% View
+
+did$`target/substring` %>% unique %>% length
+
+#raw_drug_name and PT...6
+```
+
+### Fuzzy matching on drug names
+
+- Attempt to join the DID database to the Drugbank ones through fuzzy string matching
+
+```{r}
+did_test <-
+  did %>% dplyr::select(
+    `raw drug name`,
+    PT...6,
+    PT...30,
+    ends_with("CAS#"),
+    `MESH ID`,
+    raw,
+    starts_with("entire"),
+    ends_with("substring")
+  ) %>%
+  dplyr::rename(name = PT...30,
+                CAS = `Preferred CAS#`)
+```
+
+- NOTE: Takes a while to run. 
+
+```{r}
+fuz_test <- stringdist_join(indications_struc, did_test[1:500,], 
+                by='name', #match based on team
+                mode='left', #use left join
+                method = "jw", #use jw distance metric
+                max_dist=99, 
+                distance_col='dist') %>%
+  group_by(name.x) %>%
+  slice_min(order_by=dist, n=1)
+```
+
+### CAS Number
+
+```{r}
+indications_struc %>% dplyr::filter(is.na(title)) %>% .$cas_number %>% unique %>% length
+
+indications_struc$cas_number %>% unique %>% length
+did_test$CAS %>% unique %>% length
+
+cas_joined <- dplyr::inner_join(indications_struc,
+          did_test, by = c("cas_number"="CAS"))
+
+```
+

@@ -1,0 +1,232 @@
+---
+title: "scratch_signatureSearch"
+author: "Nhi Hin"
+date: "2023-02-15"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+## Summary
+
+- Rather than reimplementing the MATLAB implementation of Connectivity Map's queries into R, it looks like the R package *signatureSearch* does something similar. 
+
+```{r load-packages}
+library(signatureSearch)
+library(signatureSearchData)
+library(ExperimentHub)
+library(rhdf5)
+library(here)
+library(HDF5Array)
+```
+
+## Reference Databases
+
+The following databases are available from ExperimentHub:
+
+- CMAP (moderated z-scores)
+- CMAP_EXP (Expression values)
+- LINCS (moderated z-scores from initial LINCS dataset)
+- LINCS2 (moderated z-scores from latest LINCS dataset)
+
+
+```{r}
+eh <- ExperimentHub()
+lincs2 <- eh[["EH7297"]]
+saveRDS(lincs2, here("data", "lincs2.rds"))
+```
+
+- The LINCS2 dataset is moderated z-scores from DE analysis of ~12,000 genes from ~30,000 compound treatments of 58 cell lines. This corresponds to ~136,000 signatures in total. 
+
+- This is the same database used for the Query Tool in the CLUE.io website so it's what we will focus on. 
+
+```{r}
+ssd <- query(eh, c("signatureSearchData"))
+ssd
+```
+
+
+## Test - Custom Databases (6021)
+
+- Custom database can be built using the `build_custom_db()` function. 
+
+- Input is a matrix or data.frame. Rows are gene IDs (e.g. entrez gene ids). Column names are expected to have structure: (drug)_(cell)_(factor), e.g. sirolimus_endothelial_trt_cp. 
+
+- Values in the matrix/data.frame can include: normalized gene expression counts; log2 fold changes; Z-scores or p-values from DE analysis. 
+
+- Output is a HDF5 file which is where the database will be stored. 
+
+- May as well test this out with the 6021 data we previously tried to prepare for an internal database. 
+
+```{r build_custom_db}
+db_6021 <- readr::read_tsv(here("output", "db_entrez_6021.txt")) %>%
+  tibble::column_to_rownames("entrezid")
+
+build_custom_db(db_6021, h5file = here("output", "db_6021_signatureSearch.h5"))
+
+custom_db_path <- here("output","db_6021_signatureSearch.h5")
+
+custom_db_6021 <- SummarizedExperiment(
+  HDF5Array(custom_db_path,
+            name = "assay")
+)
+
+rownames(custom_db_6021) <- HDF5Array(custom_db_path, name = "rownames")
+colnames(custom_db_6021) <- HDF5Array(custom_db_path, name = "colnames")
+custom_db_6021
+```
+
+## Test from Vignette
+
+- The toy database is smaller than LINCS(2) so it will be fine for testing the capabilities of the vignette. 
+
+```{r}
+db_path <- system.file("extdata", "sample_db.h5", 
+                       package = "signatureSearch")
+
+sample_db <- SummarizedExperiment(HDF5Array(db_path, name = "assay"))
+
+rownames(sample_db) <- HDF5Array(db_path, name = "rownames")
+colnames(sample_db) <- HDF5Array(db_path, name = "colnames")
+```
+
+- The query matrix is simply a one-column matrix, where rows are entrez gene IDs and the column is the particular comparison for which DE was done (e.g. vorinostat-treated vs. control). 
+
+- The top ranked 150 genes and bottom ranked 150 genes (sorted by moderated z-score?) are taken for running CMAP-like and LINCS-like queries (see below). 
+
+```{r}
+query_mat <- as.matrix(assay(sample_db[, "vorinostat__SKB__trt_cp"]))
+query <- as.numeric(query_mat)
+names(query) <- rownames(query_mat)
+
+upset <- head(names(query[order(-query)]), 150)
+downset <- tail(names(query[order(-query)]), 150)
+```
+
+### Using CMAP search method:
+
+```{r}
+qsig_cmap <- qSig(query = list(upset = upset,
+                               downset = downset),
+                  gess_method = "CMAP", 
+                  refdb = db_path)
+
+cmap <- gess_cmap(qSig = qsig_cmap,
+                  chunk_size = 5000,
+                  workers = 1)
+result(cmap) %>% View() 
+```
+
+### Using new LINCS method:
+
+```{r}
+qsig_lincs <- qSig(query = list(upset = upset,
+                               downset = downset),
+                  gess_method = "LINCS", 
+                  refdb = db_path)
+
+lincs <- gess_lincs(qSig = qsig_lincs,
+                  sortby = "NCS",
+                  tau = FALSE,
+                  workers = 1)
+result(lincs) %>% View() 
+```
+
+#### Test on the full LINCS2 data base:
+
+```{r}
+qsig_lincs_full <- qSig(query = list(upset = upset,
+                               downset = downset),
+                  gess_method = "LINCS", 
+                  refdb = lincs2)
+
+lincs2_full <- gess_lincs(qSig = qsig_lincs_full,
+                  sortby = "NCS",
+                  tau = FALSE,
+                  workers = 2)
+result(lincs2_full) %>% View
+
+# Provide compound annotation table
+# Takes ~15 mins
+lincs2_with_annot <- gess_lincs(
+  qsig_lincs_full,
+  tau = TRUE,
+  sortby = "NCS",
+  workers = 1,
+  cmp_annot_tb = lincs_pert_info2, 
+  by = "pert_id", 
+  cmp_name_col = "pert_iname")
+```
+
+#### Test on custom db
+
+```{r}
+qsig_custom <- qSig(query = list(upset = upset,
+                               downset = downset),
+                  gess_method = "LINCS", 
+                  refdb = custom_db_path)
+
+lincs2_custom <- gess_lincs(qSig = qsig_custom,
+                  sortby = "NCS",
+                  tau = FALSE,
+                  cmp_annot_tb = NULL,
+                  cmp_name_col = NULL, #Need or it fails
+                  workers = 2)
+
+result(lincs2_custom) %>% head()
+```
+
+### Visualisation
+
+```{r}
+qsig_lincs_full <- qSig(query = list(upset = upset,
+                               downset = downset),
+                  gess_method = "LINCS", 
+                  refdb = lincs2)
+
+lincs2_full <- gess_lincs(qSig = qsig_lincs_full,
+                  sortby = "NCS",
+                  tau = FALSE,
+                  workers = 2)
+
+vori_tb <- result(lincs2_full)
+
+drugs_top10 <- unique(result(lincs)$pert)[1:10]
+
+drugs_hdac <- c(
+  "panobinostat",
+  "mocetinostat",
+  "ISOX",
+  "scriptaid",
+  "entinostat",
+  "belinostat",
+  "HDAC3-selective",
+  "tubastatin-a",
+  "tacedinaline",
+  "depudecin"
+)
+drugs = c(drugs_top10, drugs_hdac)
+gess_res_vis(vori_tb, drugs = drugs, col = "NCS")
+
+vor_qsig_full <- qSig(
+  query = list(upset=upset, downset=downset), 
+  gess_method="LINCS", 
+  refdb=lincs2)
+
+vori_res_full <- gess_lincs(
+  qSig=vor_qsig_full, 
+  sortby="NCS", 
+  tau=TRUE)
+
+vori_tb <- result(vori_res_full)
+
+drugs_top10 <- unique(result(lincs)$pert)[1:10]
+
+drugs_hdac <- c("panobinostat",
+              "mocetinostat",
+              "ISOX","scriptaid","entinostat",
+      "belinostat","HDAC3-selective","tubastatin-a","tacedinaline","depudecin")
+drugs = c(drugs_top10, drugs_hdac)
+gess_res_vis(vori_tb, drugs = drugs, col = "NCS")
+```
+
