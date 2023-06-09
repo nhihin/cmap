@@ -466,6 +466,7 @@ ORAUsingFishersExactTest <- function(full_table,
     dplyr::mutate(BH_p = p.adjust(p, method="BH")) %>%
     dplyr::mutate(sig = BH_p < 0.05) %>%
     dplyr::arrange(p) %>%
+    dplyr::mutate(indication = tolower(indication)) %>%
     dplyr::left_join(mappingDf, by = "indication") %>%
     dplyr::rename(drugs_univ = drugs)# %>%
     #dplyr::rowwise() %>%

@@ -1,5 +1,5 @@
 ---
-title: "Scratch: Create internal CMap-like database from NESDA data"
+title: "Scratch: Create internal CMap-like database from NESDA data and compare Score approaches"
 author: "Nhi Hin"
 date: "2023-05-03"
 output: workflowr::wflow_html
@@ -41,11 +41,13 @@ ifelse(!dir.exists(output_dir),
 
 ## Objective
 
-1. Load NESDA data and get it into a form where we can use it for our internal database of CMap-like datasets. 
+1. Load NESDA data and get it into a form where we can use it for our internal database of CMap-like datasets, and also in a form where we can use the signatures (significant Somamers as determined previously by Idit) as queries. 
 
-2. Answer the question of which scoring mechanism is best. 
+2. Answer the question of which scoring mechanism is best. To test this, we will compare 3 different scoring methods. 
 
+3. Export out the full NESDA database as h5 files ready for use with other datasets. 
 
+The results of this workflow will be used to inform the `workflow_prepare_proteomics_query.Rmd` and `workflow_prepare_proteomics_db.Rmd` notebooks. 
 
 ## Load Helper functions
 
@@ -54,9 +56,9 @@ source(here("code", "helper_functions.R"))
 ```
 
 
-## Import Data
+## Import Data foe Databases
 
-- Updated to only read in the full datasets for each cohort. 
+- Updated to read in the full datasets for each cohort. 
 
 ```{r}
 nesda_path <- file.path("/mnt/atlas/work/general/external/studies/NESDA")
@@ -75,9 +77,6 @@ nesdata <- list.files(nesda_path,
   set_names(nesda_names)
 
 nesdata %>% lapply(dim)
-
-# nesdata$healthy <- NULL
-# healthy appears same as $Control
 ```
 
 ## Import Somamer to Protein Mappings
@@ -183,265 +182,442 @@ tables_fc <- nesdata %>%
 
 ## Prepare Matrix for SignatureSearch DB
 
-- Initially, we will test this with the Control subset of patients. 
-
 - Create various versions of the DB:
 
 1. Connectivity Score is `(1 - pv) * Estimate`.
 2. Connectivity Score is `Estimate`. This seems a bit fishy though considering that the fold changes are all quite subtle - leaving out p-value information seems not great. At the same time, fold changes should be directly comparable across drugs 
 3. Connectivity Score is -log10(p) * Estimate. This is more similar to that of a Volcano Plot.  The potential disadvantage here is that small p-values could skew the overall result more than the v1 method. 
 
-### Control Cohort
+### All Cohorts
 
-#### Version 1 
-
-```{r}
-control_drug_names <- nesdata$Control_full %>%
-  split(x = ., f = .$drug) %>%
-  names()
-
-control_drugs <- nesdata$Control_full %>%
-  split(x = ., f = .$drug) %>%
-  lapply(function(x){
-    x %>% 
-      dplyr::select(Estimate, pv, Somamer) %>%
-      dplyr::mutate(Score = (1 - pv) * Estimate) %>%
-      dplyr::select(Somamer, Score) %>%
-      tibble::column_to_rownames("Somamer") 
-  }) %>%
-  bind_cols() %>%
-  set_colnames(paste0(control_drug_names, 
-                      "__",
-                      "Control",
-                      "__",
-                      "Control"))
-
-build_custom_db(
-  control_drugs, 
-  h5file = file.path(output_dir, "control_drugs.h5"))
-
-control_drugs_db_path <- file.path(output_dir, "control_drugs.h5")
-file.exists(control_drugs_db_path)
-```
-
-#### Version 3 - ala Volcano Plot
+#### Version 1 - Rick method
 
 ```{r}
-control_drugs_v2 <- nesdata$Control_full %>%
-  split(x = ., f = .$drug) %>%
+names(nesdata) %<>%
+  gsub(x = ., pattern = "_full", 
+       replacement = "")
+
+all_drug_names <- nesdata %>%
   lapply(function(x){
-    x %>% 
-      dplyr::select(Estimate, pv, Somamer) %>%
-      dplyr::mutate(Score = Estimate) %>%
-      dplyr::select(Somamer, Score) %>%
-      tibble::column_to_rownames("Somamer") 
-  }) %>%
-  bind_cols() %>%
-  set_colnames(paste0(control_drug_names, 
-                      "__",
-                      "Control",
-                      "__",
-                      "Control"))
-
-build_custom_db(
-  control_drugs_v2, 
-  h5file = file.path(output_dir, "control_drugs_v2.h5"))
-
-control_drugs_db_path_v2 <- file.path(output_dir, "control_drugs_v2.h5")
-file.exists(control_drugs_db_path_v2)
-```
-
-#### Version 3 - Only use fold change
-
-```{r}
-control_drugs_v3 <- nesdata$Control_full %>%
-  split(x = ., f = .$drug) %>%
-  lapply(function(x){
-    x %>% 
-      dplyr::select(Estimate, pv, Somamer) %>%
-      dplyr::mutate(Score = -log10(pv)*Estimate) %>%
-      dplyr::select(Somamer, Score) %>%
-      tibble::column_to_rownames("Somamer") 
-  }) %>%
-  bind_cols() %>%
-  set_colnames(paste0(control_drug_names, 
-                      "__",
-                      "Control",
-                      "__",
-                      "Control"))
-
-build_custom_db(
-  control_drugs_v3, 
-  h5file = file.path(output_dir, "control_drugs_v3.h5"))
-
-control_drugs_db_path_v3 <- file.path(output_dir, "control_drugs_v3.h5")
-file.exists(control_drugs_db_path_v3)
-```
-
-### Database Paths
-
-```{r}
-db_paths <- list(
-  rick = control_drugs_db_path,
-  fc_only = control_drugs_db_path_v2,
-  volcano = control_drugs_db_path_v3
-)
-```
-
-
-## Test by querying Signatures of Other Cohorts against Control 
-
-### Import Signatures & Split to Drug-Per-Dataframe
-
-```{r}
-sigs <- list(
-  dep_anx = readr::read_csv(file.path(nesda_path, "NESDA_per_somamer_meds_Dep_Anx.csv")) ,
-  dep = readr::read_csv(file.path(nesda_path, "NESDA_per_somamer_meds_Depression.csv"))
-) %>%
-  lapply(function(x){
-    split(x=., f=.$drug)
-  }) %>%
-  # Subset to the drugs which are also present in the 
-  # Control cohort
-  lapply(function(x){
-    x[names(x) %in% control_drug_names]
+    x %>%
+      split(x=., f = .$drug) %>%
+      names()
   })
 
 
+
+all_drug_signatures <- list()
+for(cohort in names(nesdata)){
+  all_drug_signatures[[cohort]] <- list()
+  tmp <- nesdata[[cohort]] %>%
+    split(x = ., f = .$drug)
+  
+  for(drug in all_drug_names[[cohort]]){
+    all_drug_signatures[[cohort]][[drug]] <- 
+      tmp[[drug]] %>%
+      dplyr::select(Estimate, pv, Somamer) %>%
+      dplyr::mutate(Score = (1 - pv) * Estimate) %>%
+      dplyr::select(Somamer, Score) %>%
+      tibble::column_to_rownames("Somamer")
+  } 
+  all_drug_signatures[[cohort]] %<>% 
+    bind_cols() %>%
+    set_colnames(paste0(all_drug_names[[cohort]], 
+                      "__",
+                      cohort,
+                      "__",
+                      "NESDA"))
+  
+}
+
+all_drug_signatures_v1 <- all_drug_signatures %>%
+  bind_cols()
+
+
+dim(all_drug_signatures_v1)
+View(all_drug_signatures_v1)
+```
+
+#### Version 2 - FC Only
+
+```{r}
+all_drug_signatures <- list()
+for(cohort in names(nesdata)){
+  all_drug_signatures[[cohort]] <- list()
+  tmp <- nesdata[[cohort]] %>%
+    split(x = ., f = .$drug)
+  
+  for(drug in all_drug_names[[cohort]]){
+    all_drug_signatures[[cohort]][[drug]] <- 
+      tmp[[drug]] %>%
+      dplyr::select(Estimate, pv, Somamer) %>%
+      dplyr::mutate(Score = Estimate) %>%
+      dplyr::select(Somamer, Score) %>%
+      tibble::column_to_rownames("Somamer")
+  } 
+  all_drug_signatures[[cohort]] %<>% bind_cols() %>%
+    set_colnames(paste0(all_drug_names[[cohort]], 
+                      "__",
+                      cohort,
+                      "__",
+                      "NESDA"))
+  
+}
+
+all_drug_signatures_v2 <- all_drug_signatures %>%
+  bind_cols()
+
+
+dim(all_drug_signatures_v2)
+View(all_drug_signatures_v2)
+
+```
+
+#### Version 3 - Volcano
+
+```{r}
+all_drug_signatures <- list()
+for(cohort in names(nesdata)){
+  all_drug_signatures[[cohort]] <- list()
+  tmp <- nesdata[[cohort]] %>%
+    split(x = ., f = .$drug)
+  
+  for(drug in all_drug_names[[cohort]]){
+    all_drug_signatures[[cohort]][[drug]] <- 
+      tmp[[drug]] %>%
+      dplyr::select(Estimate, pv, Somamer) %>%
+      dplyr::mutate(Score = -log10(pv)*Estimate) %>%
+      dplyr::select(Somamer, Score) %>%
+      tibble::column_to_rownames("Somamer")
+  } 
+  all_drug_signatures[[cohort]] %<>% bind_cols() %>%
+    set_colnames(paste0(all_drug_names[[cohort]], 
+                      "__",
+                      cohort,
+                      "__",
+                      "NESDA"))
+  
+}
+
+all_drug_signatures_v3 <- all_drug_signatures %>%
+  bind_cols()
+
+
+dim(all_drug_signatures_v3)
+View(all_drug_signatures_v3)
+
+```
+
+#### Create Databases
+
+```{r}
+build_custom_db(
+  all_drug_signatures_v1, 
+  h5file = file.path(output_dir,
+                     "all_drug_signatures_v1.h5"))
+
+build_custom_db(
+  all_drug_signatures_v2, 
+  h5file = file.path(output_dir,
+                     "all_drug_signatures_v2.h5"))
+
+build_custom_db(
+  all_drug_signatures_v3, 
+  h5file = file.path(output_dir,
+                     "all_drug_signatures_v3.h5"))
+
+db_paths <- list(
+  rick = file.path(output_dir,
+                     "all_drug_signatures_v1.h5"),
+  fc_only = file.path(output_dir,
+                     "all_drug_signatures_v2.h5"),
+  volcano = file.path(output_dir,
+                     "all_drug_signatures_v3.h5")
+)
+
+db_paths %>% lapply(file.exists)
+
 ```
 
 
-### Import in Dep_Anx signature
+## Which Scoring Method is Best?
+
+### Import Signatures & Split to Drug-Per-Dataframe
+
+- `query_up` and `query_down` are lists of lists that contain the drugs to be used in the Up and Down portions of the query, for each drug-response for each cohort(group). 
 
 ```{r}
-dep_anx_query <- readr::read_csv(file.path(nesda_path, "NESDA_per_somamer_meds_Dep_Anx.csv")) %>%
-  split(x=., f=.$drug)
+# Queries include significant Somamers only 
+# for each group/cohort. 
+query_names <- list.files(
+  nesda_path,
+  pattern = "NESDA_per_somamer_meds",
+  full.names = FALSE) %>%
+  .[!grepl("_full|_healthy", .)]  %>%
+  gsub(x = ., 
+       pattern = "NESDA_per_somamer_meds_|.csv",
+       replacement = "")
 
-# Subset to the drugs which are also present in the Control cohort. 
-dep_anx_query <- dep_anx_query[names(dep_anx_query) %in% control_drug_names]
+query_signatures <- list.files(
+  nesda_path,
+  pattern = "NESDA_per_somamer_meds",
+  full.names = TRUE) %>%
+  .[!grepl("_full|_healthy", .)] %>%
+  lapply(readr::read_csv) %>%
+  set_names(query_names) 
 
-# Order Somamers by Score for preparation of 
-# Up and Down sets
-dep_anx_query %<>%
-  lapply(function(x){
-    x %>%
+query_signatures2 <- list()
+query_up <- list()
+query_down <- list()
+
+for (group in names(query_signatures)){
+  query_signatures2[[group]] <- 
+    split(x = query_signatures[[group]],
+          f = query_signatures[[group]]$drug)
+  
+  query_signatures2[[group]] %<>% 
+    lapply(function(x){
+      x %>%
       dplyr::select(Somamer, Estimate, pv) %>%
       dplyr::mutate(Score = (1 - pv) * Estimate) %>%
       dplyr::select(Somamer, Score) %>%
       dplyr::arrange(Score) %>%
       tibble::column_to_rownames("Somamer") 
-  })
-
-dep_anx_query %>% View
-
-dep_anx_query_up <- dep_anx_query %>%
-  lapply(function(x){
-    x %>%
-      dplyr::filter(Score > 0) %>%
-      rownames()
-  })
-
-dep_anx_query_down <- dep_anx_query %>%
-  lapply(function(x){
-    x %>%
-      dplyr::filter(Score < 0) %>%
-      rownames()
-  })
+    })
+  
+  query_up[[group]] <- query_signatures2[[group]] %>%
+    lapply(function(x){
+      x %>%
+        dplyr::filter(Score > 0) %>%
+        rownames()
+    })
+  
+  query_down[[group]] <- query_signatures2[[group]] %>%
+    lapply(function(x){
+      x %>%
+        dplyr::filter(Score < 0) %>%
+        rownames()
+    })
+  
+}
 ```
+
 
 ### Perform Query
 
-- Below, 
+- Note: This takes a while to run and frequently causes the R session to crash (not sure why). 
+
+- Running it piecemeal for now (Rick DB, Depression cohort, Anxiety Cohort | FC DB Depression cohort, Anxiety cohort) for testing purposes for subsequent code, will run full thing overnight sometime. 
 
 ```{r}
 qsig_preps <- list()
 queries <- list()
 results_queries <- list()
 
-for(db in names(db_paths)){
+for(db in names(db_paths)) {
   qsig_preps[[db]] <- list()
   queries[[db]] <- list()
   results_queries[[db]] <- list()
   
-  for(drug in names(dep_anx_query_up)){
-   qsig_preps[[db]][[drug]] <- 
-     qSig(
-       query = list(upset = dep_anx_query_up[[drug]],
-                    downset = dep_anx_query_down[[drug]]),
-                    gess_method = "LINCS",
-                    refdb = db_paths[[db]])
-     
-   
-   queries[[db]][[drug]] <-
-     gess_lincs(
-       qSig = qsig_preps[[db]][[drug]],
-       sortby = "NCS",
-       tau = FALSE,
-       cmp_annot_tb = NULL,
-       cmp_name_col = NULL,
-       #Need or it fails
-       workers = 2
-     )
-   results_queries[[db]][[drug]] <- 
-     result(queries[[db]][[drug]] )
-   
-  }
-}
+  for (cohort in names(query_up)) {
+    qsig_preps[[db]][[cohort]] <- list()
+    queries[[db]][[cohort]] <- list()
+    results_queries[[db]][[cohort]]
+    
+    for (drug in names(query_up[[cohort]])) {
+      qsig_preps[[db]][[cohort]][[drug]] <-
+        qSig(
+          query = list(upset = query_up[[cohort]][[drug]],
+                       downset = query_down[[cohort]][[drug]]),
+          gess_method = "LINCS",
+          refdb = db_paths[[db]]
+        )
+      
+      queries[[db]][[cohort]][[drug]] <-
+        gess_lincs(
+          qSig = qsig_preps[[db]][[cohort]][[drug]],
+          sortby = "NCS",
+          tau = FALSE,
+          cmp_annot_tb = NULL,
+          cmp_name_col = NULL,
+          workers = 2
+        )
+      results_queries[[db]][[cohort]][[drug]] <- 
+     result(queries[[db]][[cohort]][[drug]] )
+    } #End drug loop
+  } #End cohort loop
+} #End DB loop
+  
+queries %>% saveRDS(file.path(output_dir, "queries_depression_rick.rds"))
+results_queries %>% saveRDS(file.path(output_dir, "results_queries_depression_rick.rds"))
+```
+### Load Saved Results
 
-queries %>% saveRDS(file.path(output_dir, "queries.rds"))
-results_queries %>% saveRDS(file.path(output_dir, "results_queries.rds"))
+```{r}
+queries <- readRDS(file.path(output_dir, "queries.rds"))
+results_queries <- readRDS(file.path(output_dir, "results_queries.rds"))
 ```
 
-### Rankings
+
+### Compare Rankings
+
+- NCS (Normalized Connectivity Score) is used to rank the results dataframe of each query. 
+- If we are performing a query with Drug A (from group Control) against the database, we will pull out the Rank (based off NCS) of Drug A for all cohorts in the query-results dataframe. 
+- The corresponding ranks of each drug will be summarized in a table and the 3 methods can be compared by summing the ranks of all drugs. The method with the smallest score should be the best one. 
 
 ```{r}
 cs_ranks <- list()
+rank_results <- list()
 
-for(scoringmethod in names(results_queries)){
-    cs_ranks[[scoringmethod]] <- list()
-    for(d in names(results_queries[[scoringmethod]])){
-      cs_ranks[[scoringmethod]][[d]] <- 
-        results_queries[[scoringmethod]][[d]] %>%
+for (scoringmethod in names(results_queries)) {
+  cs_ranks[[scoringmethod]] <- list()
+  
+  for (cohort in names(results_queries[[scoringmethod]])) {
+    cs_ranks[[scoringmethod]][[cohort]] <- list()
+    
+    for (d in names(results_queries[[scoringmethod]][[cohort]])) {
+      cs_ranks[[scoringmethod]][[cohort]][[d]] <-
+        results_queries[[scoringmethod]][[cohort]][[d]] %>%
+        #dplyr::filter(cell == cohort) %>%
         dplyr::arrange(desc(NCS)) %>%
-        dplyr::mutate(rank = 1:nrow(.)) %>%
+        dplyr::mutate(NCS_rounded = signif(NCS, digits = 3)) %>%
+        dplyr::mutate(rank = base::rank(-(NCS_rounded), 
+                                        ties.method = "min")) %>%
+        #dplyr::mutate(rank = 1:nrow(.)) %>%
         dplyr::filter(pert == d) %>%
-        dplyr::pull(rank)
+        dplyr::select(cell, rank)
     }
     
+    cs_ranks[[scoringmethod]][[cohort]] %<>%
+      bind_rows(.id = "drug") %>%
+      dplyr::arrange(drug, cell)
+    
+    # cs_ranks[[scoringmethod]][[cohort]] %<>%
+    #   unlist() %>%
+    #   as.data.frame() %>%
+    #   set_colnames("rank")
+    
+
+  }
 }
 
-cs_ranks %<>%
-  lapply(function(x){
-    x %>%
-      unlist() %>%
-  as.data.frame() %>%
-  set_colnames("rank") 
-  })
-  
+table(cs_ranks$rick$Anxiety$cell == cs_ranks$fc_only$Anxiety$cell)
 
-rank_results <- cs_ranks %>% bind_cols() %>%
-  set_colnames(names(results_queries)) 
-
-rank_results %>% saveRDS(file.path(output_dir, "rank_results.rds"))
-
-apply(rank_results, 2, sum)
+rank_res <- list()
+for(cohort in names(query_up)){
+  rank_res[[cohort]] <- cs_ranks %>%
+    lapply(function(x){
+      x[[cohort]]
+    }) %>%
+    # purrr::reduce(function(x){
+    #   x %>% full_join(by = c("drug", "cell"))
+    # }) %>%
+    bind_cols() %>%
+  dplyr::select(drug...1, cell...2, starts_with("rank")) %>%
+    set_colnames(c("drug", "group", names(results_queries)))
+    #set_colnames(names(results_queries))
+}
+```
+```{r}
+rank_res %>% saveRDS(file.path(output_dir, "rank_res.rds"))
 ```
 
+```{r}
+rank_res$Anxiety %>% View
+```
+
+
+### Boxplots 
 
 
 ```{r}
-qsig_test <- qSig(
-  query = list(upset = dep_anx_query_up$A02BA02,
-               downset = dep_anx_query_down$A02BA02),
-                  gess_method = "LINCS", 
-                  refdb = control_drugs_db_path)
+rank_boxplots <- list()
 
-test_query <- gess_lincs(qSig = qsig_test,
-                  sortby = "NCS",
-                  tau = FALSE,
-                  cmp_annot_tb = NULL,
-                  cmp_name_col = NULL, #Need or it fails
-                  workers = 2)
+for(group in names(rank_res)) {
+  rank_boxplots[[group]] <-
+    rank_res[[group]] %>%
+    melt() %>%
+    dplyr::rename(method = variable,
+                  rank = value) %>%
+    ggplot(aes(x = rank, y = method)) +
+    geom_violin(alpha = 0.3, aes(fill = method)) +
+    scale_fill_manual(values = pals::glasbey(n = 3)) +
+    geom_boxplot(width = 0.2, fill = "white") +
+    facet_wrap(~ group) +
+    ggtitle(paste0("Query: Drug signatures (significant Somamers per drug) from ", group, " group\n", "Database: Drug signatures from all groups")) +
+    labs (x = "Rank of the same drug in each group of database (ranked on NCS (to 3 s.f.)",
+          y = "Method of calculating score for somamers in each drug signature in database")
+  
+  rank_boxplots[[group]] %>%
+    ggsave(filename = file.path(output_dir, 
+                                paste0("rank_boxplot_",
+                                group, ".pdf")),
+           plot = ., 
+           units = "in",
+           width = 13, height = 9)
+}
 
-result(test_query) %>% View()
+rank_boxplots$Control
+
+
 ```
+
+### Is the same drug significant?
+
+```{r}
+sig_res <- list()
+for(cohort in names(query_up)){
+  sig_res[[cohort]] <- cs_ranks %>%
+    lapply(function(x){
+      x[[cohort]]
+    }) 
+}
+
+sig_res <- list()
+for (scoringmethod in names(results_queries)) {
+  sig_res[[scoringmethod]] <- list()
+  
+  for (cohort in names(results_queries[[scoringmethod]])) {
+    sig_res[[scoringmethod]][[cohort]] <- list()
+    
+    for (d in names(results_queries[[scoringmethod]][[cohort]])) {
+      sig_res[[scoringmethod]][[cohort]][[d]] <-
+        results_queries[[scoringmethod]][[cohort]][[d]] %>%
+        #dplyr::filter(cell == cohort) %>%
+        dplyr::arrange(desc(NCS)) %>%
+        dplyr::mutate(NCS_rounded = signif(NCS, digits = 3)) %>%
+        dplyr::mutate(rank = base::rank(-(NCS_rounded), 
+                                        ties.method = "min")) %>%
+        #dplyr::mutate(rank = 1:nrow(.)) %>%
+        dplyr::filter(pert == d) %>%
+        dplyr::select(cell, NCS, starts_with("WTCS"))
+    }
+    
+    sig_res[[scoringmethod]][[cohort]] %<>%
+      bind_rows(.id = "drug") %>%
+      dplyr::arrange(drug, cell)
+  }
+}
+
+
+rank_res <- list()
+for(cohort in names(query_up)){
+  rank_res[[cohort]] <- cs_ranks %>%
+    lapply(function(x){
+      x[[cohort]]
+    }) %>%
+    # purrr::reduce(function(x){
+    #   x %>% full_join(by = c("drug", "cell"))
+    # }) %>%
+    bind_cols() %>%
+  dplyr::select(drug...1, cell...2, starts_with("rank")) %>%
+    set_colnames(c("drug", "group", names(results_queries)))
+    #set_colnames(names(results_queries))
+}
+```
+
+
+### Conclusion
+- I couldn't see any clear differences between the rank distributions for each of the 3 methods (Rick, fc only, volcano). They showed fairly similar performance. For cohorts which seemed more similar (e.g. Anxiety and Control), all performed decently. 
+- Weirdly, while we would expect the same drug being queries to come up as the top ranked drug, this does not happen much at all. 
+

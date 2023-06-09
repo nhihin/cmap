@@ -163,3 +163,278 @@ result(reactome_tea) %>% View
 ```
 
 
+### DEPRECATED - Control Cohort
+
+#### Version 1 
+
+```{r}
+control_drug_names <- nesdata$Control_full %>%
+  split(x = ., f = .$drug) %>%
+  names()
+
+control_drugs <- nesdata$Control_full %>%
+  split(x = ., f = .$drug) %>%
+  lapply(function(x){
+    x %>% 
+      dplyr::select(Estimate, pv, Somamer) %>%
+      dplyr::mutate(Score = (1 - pv) * Estimate) %>%
+      dplyr::select(Somamer, Score) %>%
+      tibble::column_to_rownames("Somamer") 
+  }) %>%
+  bind_cols() %>%
+  set_colnames(paste0(control_drug_names, 
+                      "__",
+                      "Control",
+                      "__",
+                      "Control"))
+
+build_custom_db(
+  control_drugs, 
+  h5file = file.path(output_dir, "control_drugs.h5"))
+
+control_drugs_db_path <- file.path(output_dir, "control_drugs.h5")
+file.exists(control_drugs_db_path)
+```
+
+#### Version 3 - ala Volcano Plot
+
+```{r}
+control_drugs_v2 <- nesdata$Control_full %>%
+  split(x = ., f = .$drug) %>%
+  lapply(function(x){
+    x %>% 
+      dplyr::select(Estimate, pv, Somamer) %>%
+      dplyr::mutate(Score = Estimate) %>%
+      dplyr::select(Somamer, Score) %>%
+      tibble::column_to_rownames("Somamer") 
+  }) %>%
+  bind_cols() %>%
+  set_colnames(paste0(control_drug_names, 
+                      "__",
+                      "Control",
+                      "__",
+                      "Control"))
+
+build_custom_db(
+  control_drugs_v2, 
+  h5file = file.path(output_dir, "control_drugs_v2.h5"))
+
+control_drugs_db_path_v2 <- file.path(output_dir, "control_drugs_v2.h5")
+file.exists(control_drugs_db_path_v2)
+```
+
+#### Version 3 - Only use fold change
+
+```{r}
+control_drugs_v3 <- nesdata$Control_full %>%
+  split(x = ., f = .$drug) %>%
+  lapply(function(x){
+    x %>% 
+      dplyr::select(Estimate, pv, Somamer) %>%
+      dplyr::mutate(Score = -log10(pv)*Estimate) %>%
+      dplyr::select(Somamer, Score) %>%
+      tibble::column_to_rownames("Somamer") 
+  }) %>%
+  bind_cols() %>%
+  set_colnames(paste0(control_drug_names, 
+                      "__",
+                      "Control",
+                      "__",
+                      "Control"))
+
+build_custom_db(
+  control_drugs_v3, 
+  h5file = file.path(output_dir, "control_drugs_v3.h5"))
+
+control_drugs_db_path_v3 <- file.path(output_dir, "control_drugs_v3.h5")
+file.exists(control_drugs_db_path_v3)
+```
+
+```{r, eval=FALSE}
+# sigs <- list(
+#   dep_anx = readr::read_csv(file.path(nesda_path, "NESDA_per_somamer_meds_Dep_Anx.csv")) ,
+#   dep = readr::read_csv(file.path(nesda_path, "NESDA_per_somamer_meds_Depression.csv"))
+# ) %>%
+#   lapply(function(x){
+#     split(x=., f=.$drug)
+#   }) %>%
+#   # Subset to the drugs which are also present in the 
+#   # Control cohort
+#   lapply(function(x){
+#     x[names(x) %in% control_drug_names]
+#   })
+
+
+```
+
+
+### DEPRECATED - Import in Dep_Anx signature
+
+```{r}
+dep_anx_query <- readr::read_csv(file.path(nesda_path, "NESDA_per_somamer_meds_Dep_Anx.csv")) %>%
+  split(x=., f=.$drug)
+
+# Subset to the drugs which are also present in the Control cohort. 
+dep_anx_query <- dep_anx_query[names(dep_anx_query) %in% control_drug_names]
+
+# Order Somamers by Score for preparation of 
+# Up and Down sets
+dep_anx_query %<>%
+  lapply(function(x){
+    x %>%
+      dplyr::select(Somamer, Estimate, pv) %>%
+      dplyr::mutate(Score = (1 - pv) * Estimate) %>%
+      dplyr::select(Somamer, Score) %>%
+      dplyr::arrange(Score) %>%
+      tibble::column_to_rownames("Somamer") 
+  })
+
+dep_anx_query %>% View
+
+dep_anx_query_up <- dep_anx_query %>%
+  lapply(function(x){
+    x %>%
+      dplyr::filter(Score > 0) %>%
+      rownames()
+  })
+
+dep_anx_query_down <- dep_anx_query %>%
+  lapply(function(x){
+    x %>%
+      dplyr::filter(Score < 0) %>%
+      rownames()
+  })
+```
+#   for(drug in names(dep_anx_query_up)){
+#    qsig_preps[[db]][[drug]] <- 
+#      qSig(
+#        query = list(upset = dep_anx_query_up[[drug]],
+#                     downset = dep_anx_query_down[[drug]]),
+#                     gess_method = "LINCS",
+#                     refdb = db_paths[[db]])
+#      
+#    
+#    queries[[db]][[drug]] <-
+#      gess_lincs(
+#        qSig = qsig_preps[[db]][[drug]],
+#        sortby = "NCS",
+#        tau = FALSE,
+#        cmp_annot_tb = NULL,
+#        cmp_name_col = NULL,
+#        #Need or it fails
+#        workers = 2
+#      )
+#    results_queries[[db]][[drug]] <- 
+#      result(queries[[db]][[drug]] )
+#    
+#   }
+# }
+
+
+```{r}
+qsig_test <- qSig(
+  query = list(upset = dep_anx_query_up$A02BA02,
+               downset = dep_anx_query_down$A02BA02),
+                  gess_method = "LINCS", 
+                  refdb = control_drugs_db_path)
+
+test_query <- gess_lincs(qSig = qsig_test,
+                  sortby = "NCS",
+                  tau = FALSE,
+                  cmp_annot_tb = NULL,
+                  cmp_name_col = NULL, #Need or it fails
+                  workers = 2)
+
+result(test_query) %>% View()
+```
+## Old 
+
+```{r}
+
+rank_res$Anxiety %>%
+  melt() %>%
+  dplyr::rename(method = variable,
+                rank = value) %>%
+  ggplot(aes(x = rank, y = method)) +
+  geom_violin(alpha=0.3, aes(fill = method)) +
+  scale_fill_manual(values = pals::glasbey(n=3)) +
+  geom_boxplot(width = 0.2, fill = "white") +
+  facet_wrap( ~ group)
+
+rank_res$Control %>%
+  melt() %>% 
+  set_colnames(c("Method", "Rank"))  %>%
+  ggplot(aes(x = Rank, y = Method)) +
+  geom_boxplot() +
+  geom_violin(alpha=0.3)
+
+rank_res$Anxiety %>%
+  melt() %>%
+  dplyr::rename(method = variable,
+                rank = value) %>%
+  ggplot(aes(x = rank, y = method)) +
+  geom_violin(alpha=0.3, aes(fill = method)) +
+  scale_fill_manual(values = pals::glasbey(n=3)) +
+  geom_boxplot(width = 0.2, fill = "white") +
+  facet_wrap( ~ group)
+
+ggviolin(df, x = "dose", y = "len", fill = "dose",
+         palette = c("#00AFBB", "#E7B800", "#FC4E07"),
+         add = "boxplot", add.params = list(fill = "white"))+
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif")+ # Add significance levels
+  stat_compare_means(label.y = 50)    
+
+
+rank_res %>% 
+  lapply(function(x){
+    apply(x, 2, sum)
+  })
+
+rank_res %>% saveRDS(file.path(output_dir, "rank_res.rds"))
+
+cs_ranks$volcano$Anxiety
+    
+#     
+#     for(d in names(results_queries[[scoringmethod]])){
+#       cs_ranks[[scoringmethod]][[d]] <- 
+#         results_queries[[scoringmethod]][[d]] %>%
+#         dplyr::arrange(desc(NCS)) %>%
+#         dplyr::mutate(rank = 1:nrow(.)) %>%
+#         dplyr::filter(pert == d) %>%
+#         dplyr::pull(rank)
+#     }
+#     
+# }
+
+# for(scoringmethod in names(results_queries)){
+#     cs_ranks[[scoringmethod]] <- list()
+#     for(d in names(results_queries[[scoringmethod]])){
+#       cs_ranks[[scoringmethod]][[d]] <- 
+#         results_queries[[scoringmethod]][[d]] %>%
+#         dplyr::arrange(desc(NCS)) %>%
+#         dplyr::mutate(rank = 1:nrow(.)) %>%
+#         dplyr::filter(pert == d) %>%
+#         dplyr::pull(rank)
+#     }
+#     
+# }
+
+cs_ranks %<>%
+  lapply(function(x){
+    x %>%
+      unlist() %>%
+  as.data.frame() %>%
+  set_colnames("rank") 
+  })
+  
+
+rank_results <- cs_ranks %>% bind_cols() %>%
+  set_colnames(names(results_queries)) 
+
+rank_results %>% saveRDS(file.path(output_dir, "rank_results.rds"))
+
+apply(rank_results, 2, sum)
+```
+
+
+
