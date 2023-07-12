@@ -1,0 +1,111 @@
+id,type,Class
+quinine,drug,NA
+nortriptyline,drug,NA
+levothyroxine,drug,NA
+donitriptan,drug,NA
+capecitabine,drug,NA
+clofibric-acid,drug,NA
+tranylcypromine,drug,NA
+gemifloxacin,drug,NA
+PF-04620110,drug,NA
+MLN-8054,drug,NA
+cabergoline,drug,NA
+lisinopril,drug,NA
+rosuvastatin,drug,NA
+bimatoprost,drug,NA
+iniparib,drug,NA
+acenocoumarol,drug,NA
+diazoxide,drug,NA
+MLN-4924,drug,NA
+ABCB1,gene,NA
+CYP2D6,gene,NA
+GP9,gene,NA
+KCNB2,gene,NA
+KCNN4,gene,NA
+SLC29A4,gene,NA
+ADRA1A,gene,NA
+ADRA1B,gene,NA
+ADRA1D,gene,NA
+ADRA2B,gene,NA
+ADRA2C,gene,NA
+ADRB1,gene,NA
+ADRB2,gene,NA
+ADRB3,gene,NA
+CHRM1,gene,NA
+CHRM4,gene,NA
+CHRM5,gene,NA
+HRH1,gene,NA
+HTR6,gene,NA
+KCNJ10,gene,NA
+PGRMC1,gene,NA
+PIK3CD,gene,NA
+SIGMAR1,gene,NA
+SLC6A2,gene,NA
+SLC6A4,gene,NA
+THRA,gene,NA
+THRB,gene,NA
+HTR1E,gene,NA
+HTR1F,gene,NA
+HTR5A,gene,NA
+CES2,gene,NA
+CES5A,gene,NA
+DPYD,gene,NA
+TYMP,gene,NA
+TYMS,gene,NA
+PPARA,gene,NA
+BDNF,gene,NA
+CYP2A6,gene,NA
+CYP2C9,gene,NA
+CYP2E1,gene,NA
+CYP46A1,gene,NA
+KDM1A,gene,NA
+MAOA,gene,NA
+MAOB,gene,NA
+TOP2A,gene,NA
+DGAT1,gene,NA
+AURKA,gene,NA
+DRD1,gene,NA
+DRD3,gene,NA
+DRD4,gene,NA
+HTR1B,gene,NA
+HTR1D,gene,NA
+HTR2B,gene,NA
+HTR7,gene,NA
+PRL,gene,NA
+ACE,gene,NA
+ACE2,gene,NA
+AGT,gene,NA
+ATP6AP2,gene,NA
+APOB,gene,NA
+CRP,gene,NA
+HMGCR,gene,NA
+SLCO1B1,gene,NA
+AKR1C3,gene,NA
+PTGER1,gene,NA
+PTGER3,gene,NA
+PTGFR,gene,NA
+PTGIR,gene,NA
+PARP1,gene,NA
+RP11-196G11.1,gene,NA
+VKORC1,gene,NA
+ABCC8,gene,NA
+ATP1A1,gene,NA
+CA1,gene,NA
+KCNJ11,gene,NA
+KCNMA1,gene,NA
+SLC12A3,gene,NA
+NAE1,gene,NA
+UBA3,gene,NA
+Hyperlipidemia,indication,Nutritional and Metabolic Diseases
+Lipidemias,indication,Nutritional and Metabolic Diseases
+Hypokalemia,indication,Nutritional and Metabolic Diseases
+Insulin Resistance,indication,Nutritional and Metabolic Diseases
+Insulin Sensitivity,indication,Nutritional and Metabolic Diseases
+Hypertriglyceridemia,indication,Nutritional and Metabolic Diseases
+Abdominal obesity metabolic syndrome,indication,Nutritional and Metabolic Diseases
+Dyslipidemias,indication,Nutritional and Metabolic Diseases
+Dyslipoproteinemias,indication,Nutritional and Metabolic Diseases
+Alkalosis,indication,Nutritional and Metabolic Diseases
+"Hypobetalipoproteinemia, Familial, Apolipoprotein B",indication,Nutritional and Metabolic Diseases
+Familial hypobetalipoproteinemia,indication,Nutritional and Metabolic Diseases
+Acanthocytosis With Hypobetalipoproteinemia,indication,Nutritional and Metabolic Diseases

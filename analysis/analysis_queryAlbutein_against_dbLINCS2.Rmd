@@ -182,6 +182,63 @@ for(celltype in names(diffs)){
 }
 ```
 
+## Top nDE genes 
+
+```{r}
+upsets2 <- list()
+downsets2 <- list()
+
+for(celltype in names(diffs)){
+  upsets2[[celltype]] <- top_n_names_from_list(diffs[[celltype]],
+                                   direction = "top",
+                                   n = 1688)
+  
+  downsets2[[celltype]] <- top_n_names_from_list(diffs[[celltype]],
+                                   direction = "bottom",
+                                   n = 2667)
+}
+
+upsets2$test <- upsets2$endothelial
+downsets2$test <- downsets2$endothelial
+```
+
+### Genes in common with bulk experiment
+
+```{r}
+up_genes_in_common <- readRDS(here("output", "_scratch_albutein_comparison", "up_genes_in_common.rds"))
+
+down_genes_in_common <- readRDS(here("output", "_scratch_albutein_comparison", "down_genes_in_common.rds"))
+
+upset_in_common <-
+  up_genes_in_common %>% 
+  dplyr::arrange(desc(sc_alb_vs_veh)) %>%
+  dplyr::pull(entrezid)
+
+downset_in_common <-
+  down_genes_in_common %>% 
+  dplyr::arrange(desc(sc_alb_vs_veh)) %>%
+  dplyr::pull(entrezid)
+
+qsigs$endothelial_in_common <- qSig(
+    query = list(upset = upset_in_common,
+                 downset = downset_in_common),
+    gess_method = "LINCS",
+    refdb = lincs2
+  )
+
+queries_against_lincs2$endothelial_in_common <-
+    gess_lincs(
+      qSig = qsigs$endothelial_in_common,
+      sortby = "NCS",
+      tau = TRUE,
+      cmp_annot_tb = lincs_pert_info2,
+      by = "pert_id",
+      cmp_name_col = "pert_iname",
+      workers = 2
+    )
+```
+
+
 
 ## Query LINCS2
 
@@ -226,6 +283,9 @@ for (celltype in names(upsets)) {
 }
 
 ```
+
+
+
 
 ### Query again but using DE genes
 
@@ -276,7 +336,7 @@ degs_down %<>%
   ) %>%
   dplyr::arrange(desc(avg_log2FC))
 degs_down %>% View
-
+degs_down %>% dim
 degs_upset <- degs_up %>% rownames()
 degs_downset <- degs_down %>% rownames()
 ```
@@ -312,24 +372,61 @@ queries_against_lincs2 %>%
 ### Save out results / read results
 
 ```{r eval=FALSE}
-
-
 queries_against_lincs2 <- 
   readRDS(file.path(output_dir,
                "queries_against_lincs2.rds"))
+
+queries_against_lincs2_v2 <- 
+  readRDS(file.path(output_dir,
+               "queries_against_lincs2_v2.rds"))
+
+queries_against_lincs2_v3 <- 
+  readRDS(file.path(output_dir,
+               "queries_against_lincs2_v3.rds"))
 
 queries_against_lincs2 %>% 
   lapply(result) %>%
   openxlsx::write.xlsx(
     file.path(output_dir,"queries_against_lincs2.xlsx")
     )
+
+tmp <- queries_against_lincs2$endothelial
+tmp2 <- queries_against_lincs2$endothelial_degs
+tmp3 <- queries_against_lincs2_v2$test
+tmp4 <- queries_against_lincs2_v3$endothelial_in_common
+queries_against_lincs2$endothelial <- list(
+  albutein_vs_veh = tmp,
+  albutein_vs_veh_degs = tmp2,
+  albutein_vs_veh_v2 = tmp3,
+  albutein_vs_veh_incommon = tmp4
+)
+
+queries_against_lincs2 %>% saveRDS(
+  file.path(output_dir, "queries_against_lincs2_all.rds")
+)
+```
+
+### Apply Significance Threshold
+
+```{r}
+for(celltype in names(queries_against_lincs2)){
+  for(comparison in names(queries_against_lincs2[[celltype]])){
+    queries_against_lincs2[[celltype]][[comparison]] %<>%
+      result %>%
+      #dplyr::filter(!is.na(t_gn_sym)) %>%
+      dplyr::mutate(sig =   (trend == "up" &
+                           WTCS_FDR < 0.05 &
+                           NCSct > 0.8)) %>%
+  dplyr::distinct(.keep_all=TRUE)
+  }
+}
 ```
 
 ### Combine Results into Single Dataframe
 
 - Note: The Significance Threshold defined below is arbitrary. May need some reworking/further investigation. 
 
-```{r}
+```{r eval=FALSE}
 full_table <- queries_against_lincs2 %>%
   lapply(result) %>%
   bind_rows(.id = "query_celltype") %>%
@@ -365,13 +462,73 @@ full_table %>%
 
 ### Summary of Results
 
-#### Significant Queries
-
-- How many queries are significant according to the `sig` column previously defined?
+### How many significant peturbations?
 
 ```{r}
-table(full_table$sig)
+# Across all cell lines
+queries_against_lincs2$endothelial %>% 
+  lapply(function(x){
+    x$sig %>% table
+  })
+
+# In HUVEC cell line only
+queries_against_lincs2$endothelial %>% 
+  lapply(function(x){
+    x %>%
+      dplyr::filter(cell == "HUVEC") %>% .$sig %>% table
+  })
 ```
+
+- Overlap in results from HUVEC cell line
+
+```{r}
+queries_against_lincs2$endothelial %>% 
+  .[c("albutein_vs_veh", "albutein_vs_veh_v2")] %>%
+  lapply(function(x){
+    x %>%
+      dplyr::filter(
+        #cell == "HUVEC",
+                    sig == TRUE) %>% 
+      dplyr::select(pert_iname, cell,
+                    starts_with("WTCS"),
+                    NCS,
+                    NCSct,
+                    t_gn_sym,
+                    MOAss)
+  }) %>%
+  purrr::reduce(function(x,y){
+    dplyr::inner_join(x,y,by = c("cell","pert_iname",
+                                 "t_gn_sym",
+                                 "MOAss"))
+  }) %>% dim
+```
+
+```{r}
+intersect(degs_upset, upsets2$test) %>% length
+intersect(degs_downset, downsets2$test) %>% length
+```
+
+```{r}
+huvec_sig_results <- queries_against_lincs2$endothelial %>%
+  lapply(function(x){
+    x %>%
+      dplyr::filter(cell == "HUVEC") %>%
+      dplyr::filter(sig == TRUE) %>%
+      dplyr::select(pert_iname, 
+                    starts_with("NCS"),
+                    starts_with("WTCS"),
+                    t_gn_sym)
+  })
+
+intersect(huvec_sig_results$albutein_vs_veh_degs$pert_iname,huvec_sig_results$albutein_vs_veh_v2$pert_iname)
+
+
+intersect(huvec_sig_results$albutein_vs_veh_degs$pert_iname,huvec_sig_results$albutein_vs_veh$pert_iname)
+
+overlap2 <- intersect(queries_against_lincs2$endothelial$albutein_vs_veh_v2$pert_iname, queri)
+```
+
+
 
 - Significant results per LINCS2 cell-line:
 
@@ -717,6 +874,7 @@ sig_table <- res_table %>%
   dplyr::filter(sig == TRUE)
 
 nrow(sig_table)
+nrow(res_table)
 ```
 
 ### Export Results

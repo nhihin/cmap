@@ -1,0 +1,1151 @@
+---
+title: "Analysis - Query Albutein Bulk HUVEC dataset against LINCS2"
+author: "Nhi Hin"
+date: "2023-06-12"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+
+## Load Packages
+
+```{r message=FALSE, warning=FALSE}
+# Run under R 4.2.2
+library(Seurat)
+library(dplyr)
+library(magrittr)
+library(readr)
+library(tibble)
+library(ggplot2)
+library(SingleCellExperiment)
+library(scater)
+library(here)
+library(rhdf5)
+library(signatureSearch)
+library(signatureSearchData)
+library(HDF5Array)
+library(ExperimentHub)
+library(disgenet2r)
+Sys.setenv(DISGENET_API_KEY = "030b2e02ff356ed135085de8c366cbbacb3bf9a4")
+```
+
+
+## Objective
+
+- Load in the Albutein (CNS 10X transcriptomics) dataset, separate it into cell types, and run the Endothelial cells' Albutein vs Vehicle comparison as a query against LINCS2 using the CMap methodology as implemented in *signatureSearch*. 
+
+- Results will be exported and also interpreted as follows:
+
+1. Over representation analysis of MOAs and gene targets
+2. Network visualizations
+
+
+## Output Directory
+
+```{r}
+output_dir <- here("output", "_queryAlbuteinBulk_against_dbLINCS2")
+ifelse(!dir.exists(output_dir),
+       dir.create(output_dir,
+                  recursive = TRUE), 
+       FALSE)
+```
+
+
+## Import data
+
+- See https://bitbucket.org/alkahest-bb/2023_huvec_bulkrnaseq/src/master/ and `code/locating_albutein_datasets.R` for details on how the DGEList was created for this. 
+
+```{r}
+dge_path <- here("data", "bulkHUVECAlbuteinDGEList.rds")
+dge <- readRDS(dge_path)
+```
+
+## Load Helper functions
+
+```{r}
+source(here("code", "helper_functions.R"))
+```
+
+## Run Analysis
+
+```{r}
+zscores_l <- DGEListToPerGroupZscores(
+  dge,
+  grouping_column = "group")
+
+zscores_l <- zscores_l[grepl("Albutein|vehicle")]
+
+# Subset to only Albutein and Vehicle samples
+zscores_l <- zscores_l[grepl("^vehicle|^Albutein", names(zscores_l))]
+
+tmp <- zscores_l
+zscores_l <- list(huvec = tmp)
+```
+
+
+### Save / Load Z-Scores
+
+```{r eval=FALSE}
+zscores_l %>% saveRDS(file.path(output_dir, "zscores_l.rds"))
+zscores_l <- readRDS(file.path(output_dir, "zscores_l.rds"))
+```
+
+
+## Convert mouse ensembl ID to human entrez ID
+
+- Because CMap is in the form of human entrez IDs, we will need to convert the mouse Ensembl IDs in order to do queries. 
+
+- There are some many:1 and potentially 1:many mappings going from mouse to human. In this case we will use the gene expression value with the maximum absolute value (regardless of sign). Other potential options worth trying are "sum" and "mean" (not done yet). 
+
+```{r}
+# Takes 1-2 mins per cell type
+# Only doing Endothelial for this analysis 
+# as CMap doesn't really have any cell lines that closely 
+# correspond to any other cell types present in CNS. 
+celltypesToKeep <- c("huvec")
+
+zscores_entrez <- zscores_l[celltypesToKeep] %>%
+  lapply(function(x){
+    x %>% lapply(function(y){
+      df <- y %>%
+        as.data.frame %>%
+        set_colnames(c("zscore")) %>%
+        convertHumanEnsemblToHumanEntrezID(
+          functionForReplicates = "absmax")
+      ls <- df$zscore %>%
+        magrittr::set_names(rownames(df))
+        return(ls)
+    })
+  })
+```
+
+```{r eval=FALSE}
+zscores_entrez %>% saveRDS(file.path(output_dir, "zscores_df.rds"))
+zscores_entrez <-readRDS(file.path(output_dir, "zscores_df.rds"))
+```
+
+## Calculate difference of z-scores  
+
+- The idea here is to get a score corresponding to how DE each gene is in a particular comparison. I think we will probably use an actual DE metric for this eventually (for any experiments with n=3), but I can see this method being potentially useful for any experiments with n<3 (the original CMap was prepared in this way as there were only n=1 or n=2 etc.)
+
+```{r}
+zscores_entrez$huvec %>% names
+
+# Get them into a clean format without special chars
+for(celltype in names(zscores_entrez)) {
+  names(zscores_entrez[[celltype]]) %<>%
+    gsub(x = ., pattern = " |-", replacement = "")
+}
+
+diffs <- list()
+diffs$huvec <- list(
+  albutein_24 = zscores_entrez$huvec$Albutein_24 - zscores_entrez$huvec$vehicle_24,
+  albutein_48 = zscores_entrez$huvec$Albutein_48 - zscores_entrez$huvec$vehicle_48,
+  albutein_72 = zscores_entrez$huvec$Albutein_72 - zscores_entrez$huvec$vehicle_72
+)
+
+```
+
+### Histogram of the z-score distribution
+
+```{r}
+for(celltype in names(diffs)){
+  for(comparison in names(diffs[[celltype]])){
+    pdf(file.path(output_dir, paste0(
+      celltype, "_", comparison, "_zscore_histogram.pdf"
+    )))
+    diffs[[celltype]][[comparison]] %>% 
+      hist(breaks = 100, main = paste0(celltype, ", ",
+                                       comparison))
+    dev.off()
+  }
+}
+```
+
+
+## Get top and bottom 150 genes based on ranking of difference of z-scores
+
+```{r}
+upsets <- list()
+downsets <- list()
+
+for (celltype in names(diffs)) {
+  upsets[[celltype]]<- list()
+  downsets[[celltype]]<-list()
+  for (comparison in names(diffs[[celltype]])) {
+    upsets[[celltype]][[comparison]] <- top_n_names_from_list(diffs[[celltype]][[comparison]],
+                                                direction = "top",
+                                                n = 150)
+    
+    downsets[[celltype]][[comparison]] <- top_n_names_from_list(diffs[[celltype]][[comparison]],
+                                                  direction = "bottom",
+                                                  n = 150)
+  }
+}
+```
+
+
+## Query LINCS2
+
+### Load LINCS2 Database
+
+```{r}
+# eh <- ExperimentHub()
+# lincs2 <- eh[["EH7297"]]
+# saveRDS(lincs2, here("data", "lincs2.rds"))
+
+lincs2 <- readRDS(here("data", "lincs2.rds"))
+```
+
+### Perform Queries using SignatureSearch
+
+```{r}
+qsigs <- list()
+queries_against_lincs2 <- list()
+
+
+for (celltype in names(upsets)) {
+  
+  qsigs[[celltype]] <- list()
+  queries_against_lincs2[[celltype]] <- list()
+  
+  for(comparison in names(upsets[[celltype]])){
+    qsigs[[celltype]][[comparison]] <- qSig(
+    query = list(upset = upsets[[celltype]][[comparison]],
+                 downset = downsets[[celltype]][[comparison]]),
+    gess_method = "LINCS",
+    refdb = lincs2
+  )
+    
+    queries_against_lincs2[[celltype]][[comparison]] <-
+    gess_lincs(
+      qSig = qsigs[[celltype]][[comparison]],
+      sortby = "NCS",
+      tau = TRUE,
+      cmp_annot_tb = lincs_pert_info2,
+      by = "pert_id",
+      cmp_name_col = "pert_iname",
+      workers = 2
+    )
+  }
+  
+  queries_against_lincs2[[celltype]] %>% 
+    saveRDS(file.path(output_dir, 
+                      paste0("queries_against_lincs2_",
+                             celltype, ".rds")))
+  
+}
+
+tmp <- queries_against_lincs2
+queries_against_lincs2 <- list(huvec = tmp)
+
+```
+
+### Test using Genes in Common
+- Identified from `scratch_albutein_comparison.Rmd`.
+
+```{r}
+up_genes_in_common <- readRDS(here("output", "_scratch_albutein_comparison", "up_genes_in_common.rds"))
+
+down_genes_in_common <- readRDS(here("output", "_scratch_albutein_comparison", "down_genes_in_common.rds"))
+
+upsets_in_common <- list()
+for(comp in names(diffs$huvec)){
+  upsets_in_common[[comp]] <-
+    diffs[["huvec"]][[comp]][up_genes_in_common$entrezid] %>%
+    sort %>%
+    rev() %>% names()
+}
+
+downsets_in_common <- list()
+for(comp in names(diffs$huvec)){
+  downsets_in_common[[comp]] <-
+    diffs[["huvec"]][[comp]][down_genes_in_common$entrezid] %>%
+    sort  %>% names()
+}
+
+qsigs2 <- list()
+queries_against_lincs2_v2 <- list()
+for(comp in names(upsets_in_common)){
+  qsigs2[[comp]] <- qSig(
+    query = list(upset = upsets_in_common[[comp]],
+                 downset = downsets_in_common[[comp]]),
+    gess_method = "LINCS",
+    refdb = lincs2
+  )
+  
+  queries_against_lincs2_v2[[comp]] <-
+    gess_lincs(
+      qSig = qsigs2[[comp]],
+      sortby = "NCS",
+      tau = TRUE,
+      cmp_annot_tb = lincs_pert_info2,
+      by = "pert_id",
+      cmp_name_col = "pert_iname",
+      workers = 2
+    )
+  
+}
+queries_against_lincs2_v2 %>%
+  saveRDS(file.path(
+    output_dir, "queries_against_lincs2_v2.rds"
+  ))
+```
+
+
+### Query again but using DE genes
+
+- We will use the DE genes that are FDR < 0.05 and abs(log2 FC) > 0.1. 
+
+```{r}
+
+
+degs <- "/mnt/home/alkahest.com/nhin/Projects/Douglas_HUVEC_analysis/DEG_1.50_ranked/all_cells_summary","DEG_repo_all_cmps_all_CTs.tsv" %>%
+  readr::read_tsv()
+
+nrow(degs)
+degs %<>%
+  dplyr::filter(p_val_adj < 0.05)
+
+degs_up <- degs %>%
+  dplyr::filter(avg_log2FC > 0) %>%
+  dplyr::arrange(desc(avg_log2FC))
+nrow(degs_up)
+degs_up$avg_log2FC %>% summary()
+
+degs_up %<>%
+  dplyr::filter(avg_log2FC > 0.1) 
+
+degs_up %<>%
+  dplyr::select(avg_log2FC, gene_id) %>%
+  tibble::column_to_rownames("gene_id") %>%
+  convertMouseEnsemblToHumanEntrezID(
+    functionForReplicates = "absmax"
+  ) %>%
+  dplyr::arrange(desc(avg_log2FC))
+
+dim(degs_up)
+
+degs_down <- degs %>%
+  dplyr::filter(avg_log2FC < 0) %>%
+  dplyr::arrange(avg_log2FC)
+nrow(degs_down)
+degs_down$avg_log2FC %>% summary()
+
+degs_down %<>%
+  dplyr::filter(abs(avg_log2FC) > 0.1)
+
+degs_down %<>%
+  dplyr::select(avg_log2FC, gene_id) %>%
+  dplyr::mutate(avg_log2FC = abs(avg_log2FC)) %>%
+  tibble::column_to_rownames("gene_id") %>%
+  convertMouseEnsemblToHumanEntrezID(
+    functionForReplicates = "absmax"
+  ) %>%
+  dplyr::arrange(desc(avg_log2FC))
+degs_down %>% View
+
+degs_upset <- degs_up %>% rownames()
+degs_downset <- degs_down %>% rownames()
+```
+
+```{r}
+qsigs$endothelial_degs <- qSig(
+  query = list(
+    upset = degs_upset,
+    downset = degs_downset),
+  gess_method = "LINCS",
+  refdb = lincs2
+)
+
+queries_against_lincs2$endothelial_degs <- 
+  gess_lincs(
+    qSig = qsigs$endothelial_degs,
+      sortby = "NCS",
+      tau = TRUE,
+      cmp_annot_tb = lincs_pert_info2,
+      by = "pert_id",
+      cmp_name_col = "pert_iname",
+      workers = 2
+  )
+
+queries_against_lincs2 %>%
+  saveRDS(file.path(output_dir,
+               "queries_against_lincs2.rds"))
+
+```
+
+
+
+### Save out results / read results
+
+```{r eval=FALSE}
+queries_against_lincs2 %>%
+  saveRDS(file.path(output_dir,
+               "queries_against_lincs2.rds"))
+
+queries_against_lincs2 <- 
+  readRDS(file.path(output_dir,
+               "queries_against_lincs2.rds"))
+
+queries_against_lincs2 %>% 
+  lapply(result) %>%
+  openxlsx::write.xlsx(
+    file.path(output_dir,"queries_against_lincs2.xlsx")
+    )
+```
+
+### Apply Significance Threshold
+
+```{r}
+for(celltype in names(queries_against_lincs2)){
+  for(comparison in names(queries_against_lincs2[[celltype]])){
+    queries_against_lincs2[[celltype]][[comparison]] %<>%
+      result %>%
+      #dplyr::filter(!is.na(t_gn_sym)) %>%
+      dplyr::mutate(sig =   (trend == "up" &
+                           WTCS_FDR < 0.05 &
+                           NCSct > 0.8)) %>%
+  dplyr::distinct(.keep_all=TRUE)
+  }
+}
+```
+
+## Results
+
+### Export Gephi Networks
+
+```{r}
+for(celltype in names(queries_against_lincs2)){
+  for(comp in names(queries_against_lincs2[[celltype]])){
+    createCMapNetwork(
+      cmap_result_table = queries_against_lincs2[[celltype]][[comp]],
+      sigOnly = TRUE,
+      output_dir = output_dir,
+      output_filename = paste0(comp, "_sig_results"))
+  }
+}
+```
+
+
+### How many significant peturbations?
+
+```{r}
+# Across all cell lines
+queries_against_lincs2$huvec %>% 
+  lapply(function(x){
+    x$sig %>% table
+  })
+
+# In HUVEC cell line only
+queries_against_lincs2$huvec %>% 
+  lapply(function(x){
+    x %>%
+      dplyr::filter(cell == "HUVEC") %>% .$sig %>% table
+  })
+```
+
+### How many significant drugs in each cell line?
+
+```{r}
+table_sigResults <- list()
+
+for(celltype in names(queries_against_lincs2)){
+  table_sigResults[[celltype]] <- list()
+  for(comparison in names(queries_against_lincs2[[celltype]])){
+    table_sigResults[[celltype]][[comparison]] <-
+      queries_against_lincs2[[celltype]][[comparison]] %>%
+      dplyr::group_by(cell, sig) %>%
+      dplyr::summarise(n=n()) %>%
+      tidyr::pivot_wider(names_from = "sig",
+                         values_from = "n") %>%
+      dplyr::rename(NotSignif = `FALSE`,
+                    Signif = `TRUE`) %>%
+      tidyr::replace_na(list(NotSignif = 0, Signif = 0)) %>%
+      dplyr::mutate(Proportion = Signif/NotSignif)
+    
+    table_sigResults[[celltype]][[comparison]] %>%
+      write_csv(file.path(output_dir, 
+                          paste0("queryLINCS2_",
+                                 celltype, "_",
+                                 comparison, ".csv")))
+  }
+}
+
+```
+
+### Pull out significant drugs in HUVECs
+
+```{r}
+table_sigDrugs <- list()
+
+for(celltype in names(queries_against_lincs2)){
+  table_sigDrugs[[celltype]] <- list()
+  for(comp in names(queries_against_lincs2[[celltype]])){
+    table_sigDrugs[[celltype]][[comp]] <- 
+      queries_against_lincs2[[celltype]][[comp]] %>%
+      dplyr::filter(cell == "HUVEC") %>%
+      dplyr::filter(sig == TRUE)
+    
+    table_sigDrugs[[celltype]][[comp]] %>%
+      write_csv(file.path(output_dir, 
+                          paste0(celltype, "_",
+                                 comparison, ".csv")))
+  }
+  
+}
+
+table_sigDrugs$huvec$albutein_24 %>% View
+```
+
+### Overlap between the 24, 48 and 72 hour Results?
+
+```{r}
+commonDrugsAllTimepoints <- table_sigDrugs$huvec %>%
+  lapply(function(x){
+    x$pert_iname
+  }) %>%
+  purrr::reduce(intersect)
+
+commonDrugsAllTimepoints
+
+commonDrugs_df <- table_sigDrugs$huvec  %>%
+  lapply(function(x){
+    x %>% 
+      dplyr::select(pert, pert_iname,
+                    trend, starts_with("WTCS"), NCS) %>%
+      dplyr::filter(pert_iname %in% commonDrugsAllTimepoints)
+  }) %>%
+  purrr::reduce(function(x,y){
+      inner_join(x,y,by = c("pert", "pert_iname"))
+  })
+colnames(commonDrugs_df) %<>%
+  gsub(x = ., pattern = ".x", replacement = "_24hr") %>%
+  gsub(x = ., pattern = ".y", replacement = "_48hr") %>%
+  gsub(x = ., pattern = ".z", replacement = "_72hr")
+commonDrugs_df %<>%
+  left_join(queries_against_lincs2$huvec$albutein_24 %>%
+              dplyr::select(t_gn_sym, MOAss, pert_iname),
+            by = "pert_iname") %>% 
+  dplyr::distinct(.keep_all=T) 
+View(commonDrugs_df)
+
+nrow(commonDrugs_df)
+
+commonDrugs_df %>% write_csv(
+  file.path(output_dir, "table_commonDrugs_allTimepoints.csv")
+)
+```
+
+
+### Summary of Results
+
+
+### p-value + NCS Distributions
+
+```{r}
+plots_pval_histogram <- list()
+plots_NCS_histogram <- list()
+plots_NCSct_histogram <- list()
+
+for(celltype in names(queries_against_lincs2)) {
+  plots_pval_histogram[[celltype]] <- list()
+  plots_NCS_histogram[[celltype]] <- list()
+  plots_NCSct_histogram[[celltype]] <- list()
+  
+  for (comparison in names(queries_against_lincs2[[celltype]])) {
+    plots_pval_histogram[[celltype]][[comparison]] <-
+      queries_against_lincs2[[celltype]][[comparison]] %>%
+      ggplot(aes(x = WTCS_Pval)) +
+      geom_histogram(bins = 100,
+                     fill = "white",
+                     color = "black") +
+      labs(x = "WTCS p-value", y = "Frequency") +
+      ggtitle("CMap WTCS values: p-value histogram",
+              subtitle = paste0(celltype, ", ",
+                                comparison))
+    
+    plots_pval_histogram[[celltype]][[comparison]] %>%
+      ggsave(filename = file.path(output_dir, 
+                                  paste0("pval_histogram_",
+                                         celltype, "_",
+                                         comparison, ".pdf")),
+             plot = ., units = "in", width=11, height=8)
+    
+    plots_NCS_histogram[[celltype]][[comparison]] <-
+      queries_against_lincs2[[celltype]][[comparison]] %>%
+      ggplot(aes(x = NCS)) +
+      geom_histogram(bins = 100,
+                     fill = "white",
+                     color = "black") +
+      labs(x = "NCS", y = "Frequency") +
+      ggtitle("CMap NCS values histogram",
+              subtitle = paste0(celltype, ", ",
+                                comparison))
+    
+    plots_NCS_histogram[[celltype]][[comparison]] %>%
+      ggsave(filename = file.path(output_dir, 
+                                  paste0("NCS_histogram_",
+                                         celltype, "_",
+                                         comparison, ".pdf")),
+             plot = ., units = "in", width=11, height=8)
+    
+    plots_NCSct_histogram[[celltype]][[comparison]] <-
+      queries_against_lincs2[[celltype]][[comparison]] %>%
+      ggplot(aes(x = NCSct)) +
+      geom_histogram(bins = 100,
+                     fill = "white",
+                     color = "black") +
+      labs(x = "NCSct", y = "Frequency") +
+      ggtitle("CMap NCSct values histogram",
+              subtitle = paste0(celltype, ", ",
+                                comparison))
+    
+    plots_NCSct_histogram[[celltype]][[comparison]] %>%
+      ggsave(filename = file.path(output_dir, 
+                                  paste0("NCSct_histogram_",
+                                         celltype, "_",
+                                         comparison, ".pdf")),
+             plot = ., units = "in", width=11, height=8)
+  }
+  
+}
+
+```
+
+## Over-Representation Analysis (ORA) 
+
+### Drug Classes (MOAss)
+
+- The `MOAss` column in `full_table` is basically the drug class (it is supposed to represent the mechanism of action). 
+- We can do an ORA with hypergeometric test to see if any drug classes (MOAss)'s are over-represented. 
+
+```{r}
+table_preps_for_ora <- queries_against_lincs2 %>%
+  lapply(function(x) {
+    x %>%
+      lapply(function(y) {
+        y %>% tidyr::separate_rows(MOAss, sep = ";") %>%
+          dplyr::mutate(MOAss = stringr::str_trim(MOAss)) %>%
+          dplyr::filter(!is.na(MOAss)) %>%
+          split(x = ., f = .$cell)
+      })
+  })
+
+ora_moa <- table_preps_for_ora %>%
+  lapply(function(x) {
+    x %>%
+      lapply(function(y) {
+        y %>%
+          lapply(function(z) {
+            z %>% ORAUsingFishersExactTest(groupingCol = "MOAss",
+                                           test = "fishers")
+          })
+      })
+  })
+
+
+
+ora_moa %>% saveRDS(file.path(output_dir, "ora_moa.rds"))
+ora_moa %>% 
+  lapply(function(x){
+    x %>%
+      dplyr::group_by(sig) %>%
+      dplyr::summarize(n=n())
+      }) %>%
+  bind_rows(.id="cell")
+```
+
+
+## Over-Represented Indications
+
+- Are there particular indications that are over-represented amongst the significant drugs as compared to all queries?
+
+- First, check how many indication-drug pairs are already present in the results table. 
+
+- In the HUVEC cell line, there are 90 / 393 drugs (23%) from the results that have indication-drug pairs. 
+
+```{r}
+nIndicationsInHUVEC <- full_table %>%
+  dplyr::filter(cell == "HUVEC") %>%
+  .$indication_class %>% unique %>% length
+
+nDrugsInHUVEC <- full_table%>%
+  dplyr::filter(cell == "HUVEC") %>%
+  .$pert_iname %>% unique %>% length
+
+nDrugIndicationPairsHUVEC <- full_table %>%
+  dplyr::filter(cell == "HUVEC") %>%
+  dplyr::filter(!is.na(indication_class) & 
+                  !is.na(pert_iname)) %>% 
+  nrow()
+nDrugIndicationPairsHUVEC
+
+nDrugIndicationPairsHUVEC/nDrugsInHUVEC
+```
+
+In terms of significant drugs, there are 34 in HUVECs, with 9 of them having an indication. There are only 5 unique indications. 
+
+```{r}
+nDrugsInHUVECSig <- full_table %>%
+  dplyr::filter(cell == "HUVEC") %>%
+  dplyr::filter(sig == TRUE) %>%
+  .$pert_iname %>% unique %>% length
+nDrugsInHUVECSig
+
+nIndicationsInHUVECSig <- full_table %>%
+  dplyr::filter(cell == "HUVEC") %>%
+  dplyr::filter(sig == TRUE) %>%
+  .$indication_class %>% unique %>% length
+nIndicationsInHUVECSig
+
+nDrugIndicationPairsHUVECSig <- full_table %>%
+  dplyr::filter(cell == "HUVEC") %>%
+  dplyr::filter(sig == TRUE) %>%
+  dplyr::filter(!is.na(pert_iname), !is.na(indication_class)) %>%
+  nrow()
+nDrugIndicationPairsHUVECSig
+```
+
+Lets see if we can improve this through the indications from DrugBank. 
+
+```{r}
+indications_drugbank <- readRDS(here("data", "indications_full_final_syn.rds")) %>%
+  dplyr::mutate(name = tolower(name)) %>%
+  dplyr::mutate(synonym = tolower(synonym))
+```
+
+- Quick check of how many of the DrugBank synonyms are in CMap. Out of the 339 drugs, there are 240 that have indications from the DrugBank table. 
+
+```{r}
+drugsInHuvec <- full_table %>%
+  dplyr::filter(cell == "HUVEC") %>%
+  .$pert_iname %>% unique %>% tolower() 
+length(drugsInHuvec)
+table(drugsInHuvec %in% c(indications_drugbank$synonym, indications_drugbank$name))
+table(drugsInHuvec %in% indications_drugbank$name)
+table(drugsInHuvec %in% indications_drugbank$synonym)
+```
+
+#### Create mapping table 
+
+- This sounds good so let's do the join.
+
+```{r}
+mappingTableDrugIndication <- full_table %>%
+  dplyr::select(pert_iname) %>%
+  dplyr::distinct(.keep_all=T) %>%
+  left_join(indications_drugbank %>% dplyr::select(-synonym) %>% dplyr::distinct(.keep_all = T), by = 
+              c("pert_iname"="name"),
+            multiple = "all") %>%
+  left_join(indications_drugbank %>% dplyr::select(-name,
+                                                   -drug_id,
+                                                   -cas_number) %>%
+              dplyr::distinct(.keep_all = T),
+            by = c("pert_iname"="synonym"),
+            multiple = "all") %>%
+  dplyr::mutate(indication = case_when(
+    !is.na(indication.x) ~ indication.x,
+    !is.na(indication.y) ~ indication.y,
+    TRUE ~ NA
+  )) %>%
+  dplyr::select(-indication.x, -indication.y) %>%
+  dplyr::distinct(.keep_all=T) %>%
+  dplyr::filter(!is.na(indication))
+
+
+View(mappingTableDrugIndication)
+
+mappingTableDrugIndication %>%
+  saveRDS(file.path(output_dir, "mappingTableDrugIndication.rds"))
+
+mappingTable2 <- mappingTableDrugIndication %>%
+  dplyr::select(pert_iname, indication) %>%
+  tidyr::nest(pert_iname) 
+mappingTable2$data %<>% lapply(function(x){
+  x %>% unlist %>% unname
+})
+mappingTable2 %<>%
+  dplyr::rename(drugs = data)
+View(mappingTable2)
+mappingTable2 %>%
+  saveRDS(file.path(output_dir, "mappingTable2.rds"))
+```
+
+#### Join mapping table to our results
+
+```{r}
+full_table2 <- full_table %>%
+  left_join(
+    mappingTableDrugIndication,
+    by = c("pert_iname"),
+    multiple = "all") 
+                                                          
+ora_indication <- ORAUsingFishersExactTest(
+  full_table2,
+  groupingCol = "indication",
+  test = "hypergeometric")
+
+ora_indication %>% saveRDS(file.path(output_dir,
+                                     "ora_indication.rds"))
+
+colnames(ora_indication)
+ora_indication$sig %>% table
+
+View(ora_indication)
+```
+
+## DisGeNet analysis - ORA of targets-indications
+
+- Retain relevant columns
+- Separate out gene symbols, one on each row. 
+- Use gene symbols of significant drugs for the DisGeNet query. 
+
+**Note**: Below, here we are focusing on the HUVEC cell line as HUVEC cells used in the query data. 
+
+```{r}
+queries_against_lincs2_tidy <- list()
+sig_res <- list()
+res_enrich <- list()
+plot_disgenets <- list()
+res_table <- list()
+
+for(celltype in names(queries_against_lincs2)) {
+  queries_against_lincs2_tidy[[celltype]] <- list()
+  sig_res[[celltype]] <- list()
+  res_enrich[[celltype]] <- list()
+  plot_disgenets[[celltype]] <- list()
+  res_table[[celltype]] <- list()
+  
+  for (comp in names(queries_against_lincs2[[celltype]])) {
+    queries_against_lincs2_tidy[[celltype]][[comp]] <-
+      queries_against_lincs2[[celltype]][[comp]] %>%
+      dplyr::filter(cell == "HUVEC") %>%
+      dplyr::select(pert,
+                    pert_iname,
+                    starts_with("WTC"),
+                    starts_with("NCS"),
+                    MOAss,
+                    t_gn_sym,
+                    sig)   %>%
+      tidyr::separate_rows(t_gn_sym, sep = ";") %>%
+      dplyr::mutate(t_gn_sym =  stringr::str_trim(t_gn_sym))
+    
+    sig_res[[celltype]][[comp]] <- 
+      queries_against_lincs2_tidy[[celltype]][[comp]] %>%
+      dplyr::filter(sig == TRUE) %>%
+      .$t_gn_sym %>% 
+      unique()
+    
+    res_enrich[[celltype]][[comp]] <- 
+      disgenet2r::disease_enrichment(
+        entities = sig_res[[celltype]][[comp]]
+      )
+    
+    plot_disgenets[[celltype]][[comp]] <-
+      plot(
+        res_enrich[[celltype]][[comp]],
+        class = "Enrichment",
+        count = 3,
+        cutoff = 0.05,
+        nchars = 70
+      )
+    
+    plot_disgenets[[celltype]][[comp]] %>%
+      ggsave(filename =  file.path(
+        output_dir,
+        paste0("disgenet_plot_",
+               celltype, "_",
+               comp, ".pdf")),
+        plot = .,
+        units = "in",
+        height = 20,
+        width = 11)
+    
+    res_table[[celltype]][[comp]] <- 
+      res_enrich[[celltype]][[comp]]@qresult %>%
+      dplyr::mutate(sig = FDR <= 0.05)
+  }
+}
+
+res_enrich %>% saveRDS(file.path(
+  output_dir, "res_enrich.rds"
+))
+
+res_table %>% saveRDS(file.path(
+  output_dir, "res_table.rds"
+))
+
+```
+
+
+## Interpretation
+
+### Which disease classes appear more commonly across all 3 time points? (DisGenet results)
+
+```{r}
+table_propDiseaseClasses <- res_table$huvec %>%
+  bind_rows(.id = "Hours") %>%
+  tidyr::separate_rows(disease_class_name, sep = ";") %>%
+  dplyr::group_by(Hours, disease_class_name, sig) %>%
+  dplyr::summarise(n=n())%>% 
+  tidyr::pivot_wider(names_from = c(Hours, sig),
+                     values_from = n) %>% 
+  tidyr::replace_na(list(albutein_24=0,
+                         albutein_48=0,
+                         albutein_72=0)) %>%
+  dplyr::filter(!is.na(disease_class_name))
+table_propDiseaseClasses[is.na(table_propDiseaseClasses)] <- 0
+
+# Calculate proportion of significant results per 
+  # disease class
+table_propDiseaseClasses %<>%
+  dplyr::mutate(albutein_24_prop = albutein_24_TRUE/
+                  (albutein_24_TRUE+albutein_24_FALSE)) %>%
+  dplyr::mutate(albutein_48_prop = albutein_48_TRUE/
+                  (albutein_48_TRUE+albutein_48_FALSE)) %>%
+  dplyr::mutate(albutein_72_prop = albutein_72_TRUE/
+                  (albutein_72_TRUE+albutein_72_FALSE)) %>% 
+  dplyr::select(disease_class_name, contains("prop")) %>%
+  dplyr::mutate(total_prop = albutein_24_prop +
+                  albutein_48_prop + albutein_72_prop) %>%
+  dplyr::arrange(desc(total_prop)) 
+ 
+table_propDiseaseClasses %>% 
+  readr::write_csv(file.path(
+    output_dir, "table_propDiseaseClasses.csv"
+  ))
+
+View(table_propDiseaseClasses) 
+
+plot_propDiseaseClasses <- table_propDiseaseClasses %>%
+  melt %>%
+  dplyr::left_join(table_propDiseaseClasses %>%
+                     dplyr::select(total_prop,
+                                   disease_class_name)) %>%
+  dplyr::filter(!is.nan(total_prop)) %>%
+  ggplot(aes(
+    y = forcats::fct_reorder(disease_class_name, total_prop),
+    x = value,
+    fill = variable
+  )) +
+  geom_bar(stat = "identity",
+           position = "dodge") +
+  labs(x = "Proportion of indications that are significant (within an indication class)", y = "Indication Class",
+       fill = "Timepoint") +
+  scale_fill_manual(
+    values = pals::glasbey(),
+    labels = c("24 Hours",
+               "48 Hours",
+               "72 Hours", "Total")
+  )
+plot_propDiseaseClasses
+plot_propDiseaseClasses %>%
+  ggsave(filename = file.path(output_dir, 
+                              "plot_propDiseaseClasses.pdf"),
+         plot = ., 
+         units = "in", width=17, height=9)
+```
+
+- "Nutritional and Metabolic Diseases" and "Cardiovascular Diseases" look interesting to dig into. 
+
+### Relevant disease classes
+
+```{r}
+table_relDiseaseClasses <- res_table$huvec %>%
+  lapply(function(x){
+    x %>%
+      tidyr::separate_rows(disease_class_name, sep = ";") %>%
+  dplyr::filter(sig == TRUE) %>%
+  dplyr::filter(disease_class_name %in% 
+                  c("Nutritional and Metabolic Diseases",
+                    "Cardiovascular Diseases")) %>%
+      dplyr::select(ID, Description, disease_class_name,
+                    pvalue, FDR, contains("Ratio"))
+  }) %>% purrr:::reduce(function(x,y){
+     inner_join(x,y, by = c("Description", 
+                            "ID", 
+                            "disease_class_name"))
+   })
+
+View(table_relDiseaseClasses)  
+
+table_relDiseaseClasses$Description
+```
+
+## Network Plots (for Gephi)
+
+### Nutritional & Metabolic Disorders
+
+```{r}
+
+```
+
+
+### Cardiovascular Disorders
+
+### Both
+
+```{r}
+networks <- list()
+
+for(celltype in names(queries_against_lincs2)) {
+  networks[[celltype]] <- list()
+  for (comp in names(queries_against_lincs2[[celltype]])) {
+    networks[[celltype]][[comp]] <-
+      createDrugGeneIndicationNetwork(
+        cmap_result_table = queries_against_lincs2[[celltype]][[comp]],
+        disgenet_result_table = res_table[[celltype]][[comp]] %>%
+          dplyr::filter(Description %in% table_relDiseaseClasses$Description),
+        disease_class_names = "Cardiovascular Diseases",
+        cmap_cell_line = "HUVEC", output_dir = output_dir, 
+        output_filename = paste0("cardio_",celltype, "_", comp)
+      )
+  }
+}
+```
+
+
+## Network Plots
+
+### Prep
+
+```{r}
+cardiovascular_conditions <- c(
+  "Hypotension",
+  "Heart failure",
+  "Congestive heart failure",
+  "Hypertensive disease",
+  "Left-Sided Heart Failure",
+  "Heart Failure, Right-Sided",
+  "Myocardial Failure",
+  "Heart Decompensation",
+  "Cardiovascular Diseases",
+  "Cardiomegaly",
+  "Endomyocardial Fibrosis",
+  "Cardiac Hypertrophy",
+  "Aortic Aneurysm, Abdominal",
+  "Cardiomyopathies, Primary",
+  "Myocardial Diseases, Secondary",
+  "Atherosclerosis",
+  "Atherogenesis",
+  "Left Ventricular Hypertrophy",
+  "Malignant Hypertension",
+  "Myocardial Ischemia"
+)
+
+metabolic_conditions <- c(
+  "Obesity",
+  "Hyperlipidemia",
+  "Lipidemias",
+  "Hypertriglyceridemia",
+  "Hyperlipoproteinemia Type IIb",
+  "Hyperlipoproteinemia Type IIa",
+  "Hyperlipoproteinemia Type IIa",
+  "Hypobetalipoproteinemia, Familial, Apolipoprotein B",
+  "Familial hypobetalipoproteinemia",
+  "Hypercholesterolemia, Familial",
+  "Hyperlipoproteinemia Type IIa",
+  "Hyperlipoproteinemia Type IIb",
+  "Dyslipidemias",
+  "Dyslipoproteinemias"
+)
+
+diabetes_conditions <- c(
+  "Alloxan Diabetes",
+  "Diabetes Mellitus, Experimental",
+  "Streptozotocin Diabetes",
+  "Insulin Resistance",
+  "Insulin Sensitivity"
+)
+
+hepatic_conditions <- c(
+  "Hepatic Coma",
+  "Hepatic Encephalopathy",
+  "Fulminant Hepatic Failure with Cerebral Edema",
+  "Hepatic Stupor"
+)
+
+# List 3 terms
+misc_conditions <- c(
+  "Thrombus",
+  "Hypokalemia",
+  "Hyperemia",
+  "Venous Engorgement",
+  "Reactive Hyperemia",
+  "Active Hyperemia",
+  "Alkalosis",
+  "Purine-Pyrimidine Metabolism, Inborn Errors",
+  "Ataxia with vitamin E deficiency",
+  "Dihydropyrimidine Dehydrogenase Deficiency",
+  "Abdominal obesity metabolic syndrome",
+  "Acanthocytosis With Hypobetalipoproteinemia"
+)
+
+indication2classdf <- list(cardiovascular_conditions = cardiovascular_conditions, metabolic_conditions = metabolic_conditions, diabetes_conditions = diabetes_conditions, hepatic_conditions = hepatic_conditions, misc_conditions = misc_conditions) %>% lapply(as.data.frame) %>% bind_rows(.id = "condition") %>%
+  set_colnames(c("Class", "Indication"))
+
+```
+
+### Network
+
+```{r}
+
+```
+
+
+
+### Dataframe Prep
+
+- Pull out disease names (`Description`), gene symbol, and link this back to the drug that induced these. 
+
+```{r}
+cmap_drugs2genes <- queries_against_lincs2_tidy$huvec$albutein_24 %>%
+  dplyr::select(pert_iname, t_gn_sym) %>%
+  dplyr::filter(!is.na(t_gn_sym), !is.na(pert_iname)) 
+dim(cmap_drugs2genes)
+
+disgenet_genes2indications <-x
+
+res_table$huvec$albutein_24$shared_symbol %>% unique %>% length
+
+
+test <- createDrugGeneIndicationNetwork(cmap_result_table = queries_against_lincs2$huvec$albutein_24, disgenet_result_table = res_table$huvec$albutein_24, cmap_cell_line = "HUVEC")
+```
+
+### Network
+
+```{r}
+
+
+networks$huvec$albutein_48$nodes %>%
+  write_csv(file.path(output_dir, "network_huvec_al"))
+
+networks$huvec %>% lapply(function(x){
+  x$edges %>% nrow()
+  x$nodes %>% nrow()
+})
+
+
+network_24hrs <- createDrugGeneIndicationNetwork(
+  cmap_result_table = queries_against_lincs2$huvec$albutein_24,
+  disgenet_result_table = res_table$huvec$albutein_24,
+  cmap_cell_line = "HUVEC"
+)
+
+network_48hrs <- createDrugGeneIndicationNetwork(
+  cmap_result_table = queries_against_lincs2$huvec$albutein_48,
+  disgenet_result_table = res_table$huvec$albutein_48,
+  cmap_cell_line = "HUVEC"
+)
+
+network_72hrs <- createDrugGeneIndicationNetwork(
+  cmap_result_table = queries_against_lincs2$huvec$albutein_72,
+  disgenet_result_table = res_table$huvec$albutein_72,
+  cmap_cell_line = "HUVEC"
+)
+
+network_48 %>% View
+```
+

@@ -1,0 +1,333 @@
+source,target
+quinine,ABCB1
+quinine,CYP2D6
+quinine,GP9
+quinine,KCNB2
+quinine,KCNN4
+quinine,SLC29A4
+nortriptyline,ADRA1A
+nortriptyline,ADRA1B
+nortriptyline,ADRA1D
+nortriptyline,ADRA2B
+nortriptyline,ADRA2C
+nortriptyline,ADRA2C
+nortriptyline,ADRA2C
+nortriptyline,ADRA2C
+nortriptyline,ADRA2C
+nortriptyline,ADRA2C
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB2
+nortriptyline,ADRB2
+nortriptyline,ADRB2
+nortriptyline,ADRB3
+nortriptyline,ADRB3
+nortriptyline,ADRB3
+nortriptyline,ADRB3
+nortriptyline,ADRB3
+nortriptyline,ADRB3
+nortriptyline,CHRM1
+nortriptyline,CHRM4
+nortriptyline,CHRM5
+nortriptyline,HRH1
+nortriptyline,HRH1
+nortriptyline,HRH1
+nortriptyline,HTR6
+nortriptyline,KCNJ10
+nortriptyline,PGRMC1
+nortriptyline,PIK3CD
+nortriptyline,SIGMAR1
+nortriptyline,SLC6A2
+nortriptyline,SLC6A4
+levothyroxine,THRA
+levothyroxine,THRB
+donitriptan,HTR1E
+donitriptan,HTR1F
+donitriptan,HTR5A
+capecitabine,CES2
+capecitabine,CES5A
+capecitabine,DPYD
+capecitabine,TYMP
+capecitabine,TYMS
+clofibric-acid,PPARA
+tranylcypromine,BDNF
+tranylcypromine,CYP2A6
+tranylcypromine,CYP2C9
+tranylcypromine,CYP2C9
+tranylcypromine,CYP2E1
+tranylcypromine,CYP46A1
+tranylcypromine,KDM1A
+tranylcypromine,MAOA
+tranylcypromine,MAOB
+gemifloxacin,TOP2A
+PF-04620110,DGAT1
+MLN-8054,AURKA
+cabergoline,ADRA1A
+cabergoline,ADRA1B
+cabergoline,ADRA1D
+cabergoline,ADRA2B
+cabergoline,ADRA2C
+cabergoline,ADRA2C
+cabergoline,ADRA2C
+cabergoline,ADRA2C
+cabergoline,ADRA2C
+cabergoline,ADRA2C
+cabergoline,ADRB1
+cabergoline,ADRB1
+cabergoline,ADRB1
+cabergoline,ADRB1
+cabergoline,ADRB1
+cabergoline,ADRB1
+cabergoline,ADRB1
+cabergoline,ADRB1
+cabergoline,ADRB1
+cabergoline,ADRB1
+cabergoline,ADRB1
+cabergoline,ADRB1
+cabergoline,ADRB1
+cabergoline,ADRB1
+cabergoline,ADRB2
+cabergoline,ADRB2
+cabergoline,ADRB2
+cabergoline,DRD1
+cabergoline,DRD3
+cabergoline,DRD4
+cabergoline,HTR1B
+cabergoline,HTR1D
+cabergoline,HTR2B
+cabergoline,HTR2B
+cabergoline,HTR2B
+cabergoline,HTR2B
+cabergoline,HTR2B
+cabergoline,HTR2B
+cabergoline,HTR2B
+cabergoline,HTR7
+cabergoline,PRL
+cabergoline,PRL
+cabergoline,PRL
+cabergoline,PRL
+cabergoline,PRL
+cabergoline,PRL
+cabergoline,PRL
+lisinopril,ACE
+lisinopril,ACE
+lisinopril,ACE
+lisinopril,ACE
+lisinopril,ACE
+lisinopril,ACE
+lisinopril,ACE
+lisinopril,ACE
+lisinopril,ACE
+lisinopril,ACE2
+lisinopril,ACE2
+lisinopril,ACE2
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,AGT
+lisinopril,ATP6AP2
+rosuvastatin,APOB
+rosuvastatin,CRP
+rosuvastatin,CRP
+rosuvastatin,CRP
+rosuvastatin,CRP
+rosuvastatin,CRP
+rosuvastatin,CRP
+rosuvastatin,CRP
+rosuvastatin,CRP
+rosuvastatin,CRP
+rosuvastatin,CRP
+rosuvastatin,CRP
+rosuvastatin,CRP
+rosuvastatin,HMGCR
+rosuvastatin,SLCO1B1
+bimatoprost,AKR1C3
+bimatoprost,PTGER1
+bimatoprost,PTGER3
+bimatoprost,PTGFR
+bimatoprost,PTGIR
+iniparib,PARP1
+iniparib,PARP1
+iniparib,PARP1
+iniparib,PARP1
+acenocoumarol,CYP2C9
+acenocoumarol,CYP2C9
+acenocoumarol,RP11-196G11.1
+acenocoumarol,VKORC1
+diazoxide,ABCC8
+diazoxide,ATP1A1
+diazoxide,ATP1A1
+diazoxide,CA1
+diazoxide,KCNJ11
+diazoxide,KCNMA1
+diazoxide,SLC12A3
+MLN-4924,NAE1
+MLN-4924,UBA3
+ADRA1B,Hypotension
+ADRA2C,Heart failure
+ADRA2C,Congestive heart failure
+ADRA2C,Left-Sided Heart Failure
+ADRA2C,"Heart Failure, Right-Sided"
+ADRA2C,Myocardial Failure
+ADRA2C,Heart Decompensation
+ADRB1,Heart failure
+ADRB1,Congestive heart failure
+ADRB1,Hypertensive disease
+ADRB1,Left-Sided Heart Failure
+ADRB1,"Heart Failure, Right-Sided"
+ADRB1,Myocardial Failure
+ADRB1,Heart Decompensation
+ADRB1,Cardiovascular Diseases
+ADRB1,Endomyocardial Fibrosis
+ADRB1,Hyperemia
+ADRB1,Venous Engorgement
+ADRB1,Reactive Hyperemia
+ADRB1,Active Hyperemia
+ADRB1,Myocardial Ischemia
+ADRB2,"Cardiomyopathies, Primary"
+ADRB2,"Myocardial Diseases, Secondary"
+ADRB2,Myocardial Ischemia
+ADRB3,Heart failure
+ADRB3,Congestive heart failure
+ADRB3,Left-Sided Heart Failure
+ADRB3,"Heart Failure, Right-Sided"
+ADRB3,Myocardial Failure
+ADRB3,Heart Decompensation
+HRH1,Hypotension
+HRH1,Atherosclerosis
+HRH1,Atherogenesis
+SLC6A2,Hypertensive disease
+PPARA,Hypertensive disease
+CYP2C9,"Cardiomyopathies, Primary"
+CYP2C9,"Myocardial Diseases, Secondary"
+MAOA,Hypotension
+MAOB,Hypotension
+ADRA1B,Hypotension
+ADRA2C,Heart failure
+ADRA2C,Congestive heart failure
+ADRA2C,Left-Sided Heart Failure
+ADRA2C,"Heart Failure, Right-Sided"
+ADRA2C,Myocardial Failure
+ADRA2C,Heart Decompensation
+ADRB1,Heart failure
+ADRB1,Congestive heart failure
+ADRB1,Hypertensive disease
+ADRB1,Left-Sided Heart Failure
+ADRB1,"Heart Failure, Right-Sided"
+ADRB1,Myocardial Failure
+ADRB1,Heart Decompensation
+ADRB1,Cardiovascular Diseases
+ADRB1,Endomyocardial Fibrosis
+ADRB1,Hyperemia
+ADRB1,Venous Engorgement
+ADRB1,Reactive Hyperemia
+ADRB1,Active Hyperemia
+ADRB1,Myocardial Ischemia
+ADRB2,"Cardiomyopathies, Primary"
+ADRB2,"Myocardial Diseases, Secondary"
+ADRB2,Myocardial Ischemia
+DRD1,Hypotension
+HTR1B,Hypotension
+HTR1D,Hypotension
+HTR2B,Heart failure
+HTR2B,Congestive heart failure
+HTR2B,Hypertensive disease
+HTR2B,Left-Sided Heart Failure
+HTR2B,"Heart Failure, Right-Sided"
+HTR2B,Myocardial Failure
+HTR2B,Heart Decompensation
+PRL,Hypotension
+PRL,Heart failure
+PRL,Congestive heart failure
+PRL,Left-Sided Heart Failure
+PRL,"Heart Failure, Right-Sided"
+PRL,Myocardial Failure
+PRL,Heart Decompensation
+ACE,Hypotension
+ACE,Heart failure
+ACE,Congestive heart failure
+ACE,Hypertensive disease
+ACE,Left-Sided Heart Failure
+ACE,"Heart Failure, Right-Sided"
+ACE,Myocardial Failure
+ACE,Heart Decompensation
+ACE,Cardiovascular Diseases
+ACE2,Hypertensive disease
+ACE2,Endomyocardial Fibrosis
+ACE2,"Aortic Aneurysm, Abdominal"
+AGT,Hypotension
+AGT,Heart failure
+AGT,Congestive heart failure
+AGT,Hypertensive disease
+AGT,Left-Sided Heart Failure
+AGT,"Heart Failure, Right-Sided"
+AGT,Myocardial Failure
+AGT,Heart Decompensation
+AGT,Cardiovascular Diseases
+AGT,Endomyocardial Fibrosis
+AGT,Thrombus
+AGT,Atherosclerosis
+AGT,Atherogenesis
+AGT,"Cardiomyopathies, Primary"
+AGT,"Myocardial Diseases, Secondary"
+AGT,"Aortic Aneurysm, Abdominal"
+AGT,Hyperemia
+AGT,Venous Engorgement
+AGT,Reactive Hyperemia
+AGT,Active Hyperemia
+AGT,Myocardial Ischemia
+AGT,Malignant Hypertension
+APOB,Cardiovascular Diseases
+CRP,Heart failure
+CRP,Congestive heart failure
+CRP,Hypertensive disease
+CRP,Left-Sided Heart Failure
+CRP,"Heart Failure, Right-Sided"
+CRP,Myocardial Failure
+CRP,Heart Decompensation
+CRP,Cardiovascular Diseases
+CRP,Thrombus
+CRP,Atherosclerosis
+CRP,Atherogenesis
+CRP,Myocardial Ischemia
+PTGER3,Thrombus
+PARP1,Atherosclerosis
+PARP1,Atherogenesis
+PARP1,"Cardiomyopathies, Primary"
+PARP1,"Myocardial Diseases, Secondary"
+CYP2C9,"Cardiomyopathies, Primary"
+CYP2C9,"Myocardial Diseases, Secondary"
+VKORC1,Thrombus
+ATP1A1,Hypertensive disease
+ATP1A1,Myocardial Ischemia
+SLC12A3,Hypertensive disease

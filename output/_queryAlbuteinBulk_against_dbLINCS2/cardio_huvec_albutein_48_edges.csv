@@ -1,0 +1,664 @@
+source,target
+aliskiren,ACE2
+aliskiren,ACE2
+aliskiren,ACE2
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,AGT
+aliskiren,CMA1
+aliskiren,CPA3
+aliskiren,CTSG
+aliskiren,CTSZ
+aliskiren,ENPEP
+aliskiren,REN
+aliskiren,REN
+aliskiren,REN
+aliskiren,REN
+aliskiren,REN
+aliskiren,REN
+aliskiren,REN
+aliskiren,REN
+aliskiren,REN
+PF-04620110,DGAT1
+quinine,ABCB1
+quinine,CYP2D6
+quinine,GP9
+quinine,KCNB2
+quinine,KCNN4
+quinine,SLC29A4
+felodipine,CACNA1C
+felodipine,CACNA1D
+felodipine,CACNA1H
+felodipine,CACNA1S
+felodipine,CACNA2D1
+felodipine,CACNA2D2
+felodipine,CACNB2
+felodipine,CALM1
+felodipine,CALM2
+felodipine,CALM3
+felodipine,CFTR
+felodipine,NR3C2
+felodipine,NR3C2
+felodipine,NR3C2
+felodipine,NR3C2
+felodipine,NR3C2
+felodipine,NR3C2
+felodipine,PDE1A
+felodipine,PDE1B
+felodipine,TNNC1
+felodipine,TNNC2
+GDC-0834,BTK
+amlexanox,FGF1
+amlexanox,FGF1
+amlexanox,IL3
+amlexanox,PPID
+amlexanox,S100A12
+amlexanox,S100A13
+amlexanox,S100A9
+flumazenil,GABRA2
+flumazenil,GABRA3
+flumazenil,GABRA4
+flumazenil,GABRA5
+flumazenil,GABRA6
+flumazenil,GABRB1
+flumazenil,GABRB2
+flumazenil,GABRB3
+flumazenil,GABRD
+flumazenil,GABRE
+flumazenil,GABRG1
+flumazenil,GABRG2
+flumazenil,GABRG3
+flumazenil,GABRP
+flumazenil,GABRQ
+repaglinide,ABCC8
+repaglinide,CYP2C8
+repaglinide,CYP3A5
+repaglinide,INS
+repaglinide,INS
+repaglinide,INS
+repaglinide,INS
+repaglinide,INS
+repaglinide,INS
+repaglinide,INS
+repaglinide,INS
+repaglinide,KCNJ1
+repaglinide,KCNJ11
+repaglinide,PPARG
+repaglinide,PPARG
+repaglinide,PPARG
+repaglinide,PPARG
+repaglinide,PPARG
+repaglinide,PPARG
+repaglinide,PPARG
+repaglinide,PPARG
+repaglinide,PPARG
+repaglinide,SLCO1B1
+chloroquine,CYP2C8
+chloroquine,GSTA2
+chloroquine,MAP2K1
+chloroquine,MAP2K2
+chloroquine,MRGPRX1
+chloroquine,NQO2
+chloroquine,SLC22A18
+chloroquine,TLR9
+chloroquine,TNF
+chloroquine,TNF
+chloroquine,TNF
+chloroquine,TNF
+chloroquine,TNF
+chloroquine,TNF
+chloroquine,TNF
+chloroquine,TNF
+chloroquine,TNF
+chloroquine,TNF
+chloroquine,TNF
+chloroquine,TNF
+chloroquine,TNF
+chloroquine,TNF
+paroxetine,ADRBK1
+paroxetine,CHRM1
+paroxetine,CHRM4
+paroxetine,CHRM5
+paroxetine,CYP2B6
+paroxetine,GNG2
+paroxetine,GNG4
+paroxetine,GRK1
+paroxetine,SLC6A2
+paroxetine,SLC6A4
+balsalazide,ALOX5
+balsalazide,ALOX5
+balsalazide,PPARG
+balsalazide,PPARG
+balsalazide,PPARG
+balsalazide,PPARG
+balsalazide,PPARG
+balsalazide,PPARG
+balsalazide,PPARG
+balsalazide,PPARG
+balsalazide,PPARG
+donitriptan,HTR1E
+donitriptan,HTR1F
+donitriptan,HTR5A
+Y-26763,ABCC9
+Y-26763,KCNJ8
+lamivudine,DCK
+FR-180204,MAPK3
+FR-180204,MAPK3
+bromocriptine,ADCY10
+bromocriptine,ADRA1A
+bromocriptine,ADRA1B
+bromocriptine,ADRA1D
+bromocriptine,ADRA2B
+bromocriptine,ADRA2C
+bromocriptine,ADRA2C
+bromocriptine,ADRA2C
+bromocriptine,ADRA2C
+bromocriptine,ADRA2C
+bromocriptine,ADRA2C
+bromocriptine,DRD1
+bromocriptine,DRD3
+bromocriptine,DRD4
+bromocriptine,GH1
+bromocriptine,HTR1B
+bromocriptine,HTR1D
+bromocriptine,HTR2B
+bromocriptine,HTR2B
+bromocriptine,HTR2B
+bromocriptine,HTR2B
+bromocriptine,HTR2B
+bromocriptine,HTR2B
+bromocriptine,HTR2B
+bromocriptine,HTR6
+bromocriptine,HTR7
+bromocriptine,PRL
+bromocriptine,PRL
+bromocriptine,PRL
+bromocriptine,PRL
+bromocriptine,PRL
+bromocriptine,PRL
+bromocriptine,PRL
+bromocriptine,PRLR
+nortriptyline,ADRA1A
+nortriptyline,ADRA1B
+nortriptyline,ADRA1D
+nortriptyline,ADRA2B
+nortriptyline,ADRA2C
+nortriptyline,ADRA2C
+nortriptyline,ADRA2C
+nortriptyline,ADRA2C
+nortriptyline,ADRA2C
+nortriptyline,ADRA2C
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB1
+nortriptyline,ADRB2
+nortriptyline,ADRB2
+nortriptyline,ADRB2
+nortriptyline,ADRB3
+nortriptyline,ADRB3
+nortriptyline,ADRB3
+nortriptyline,ADRB3
+nortriptyline,ADRB3
+nortriptyline,ADRB3
+nortriptyline,CHRM1
+nortriptyline,CHRM4
+nortriptyline,CHRM5
+nortriptyline,HRH1
+nortriptyline,HRH1
+nortriptyline,HRH1
+nortriptyline,HTR6
+nortriptyline,KCNJ10
+nortriptyline,PGRMC1
+nortriptyline,PIK3CD
+nortriptyline,SIGMAR1
+nortriptyline,SLC6A2
+nortriptyline,SLC6A4
+bimatoprost,AKR1C3
+bimatoprost,PTGER1
+bimatoprost,PTGER3
+bimatoprost,PTGFR
+bimatoprost,PTGIR
+GSK-J1,KDM6B
+GSK-J1,UTY
+adapalene,CRABP2
+adapalene,RARA
+adapalene,RARB
+adapalene,RARG
+adapalene,RXRA
+adapalene,RXRB
+adapalene,RXRG
+BAY-K8644,CACNA1C
+MBX-2982,HCAR3
+capecitabine,CES2
+capecitabine,CES5A
+capecitabine,DPYD
+capecitabine,TYMP
+capecitabine,TYMS
+desvenlafaxine,SLC6A2
+desvenlafaxine,SLC6A4
+clonazepam,GABRA2
+clonazepam,GABRA3
+clonazepam,GABRA4
+clonazepam,GABRA5
+clonazepam,GABRA6
+clonazepam,GABRB1
+clonazepam,GABRB2
+clonazepam,GABRB3
+clonazepam,GABRD
+clonazepam,GABRE
+clonazepam,GABRG1
+clonazepam,GABRG2
+clonazepam,GABRG3
+clonazepam,GABRP
+clonazepam,GABRQ
+clonazepam,NR1I2
+clonazepam,TSPO
+TAK-715,MAPK14
+TAK-715,MAPK14
+TAK-715,MAPK14
+TAK-715,TNF
+TAK-715,TNF
+TAK-715,TNF
+TAK-715,TNF
+TAK-715,TNF
+TAK-715,TNF
+TAK-715,TNF
+TAK-715,TNF
+TAK-715,TNF
+TAK-715,TNF
+TAK-715,TNF
+TAK-715,TNF
+TAK-715,TNF
+TAK-715,TNF
+MLN-8054,AURKA
+diltiazem,CACNA1C
+diltiazem,CACNA1S
+diltiazem,CACNA2D1
+diltiazem,CACNG1
+diltiazem,CYP3A5
+diltiazem,CYP3A7
+diltiazem,EDN1
+diltiazem,EDN1
+diltiazem,EDN1
+diltiazem,EDN1
+diltiazem,EDN1
+diltiazem,EDN1
+diltiazem,EDN1
+diltiazem,EDN1
+diltiazem,EDN1
+diltiazem,EDN1
+diltiazem,EDN1
+diltiazem,EDN1
+diltiazem,HTR3A
+diltiazem,KCNA5
+diazoxide,ABCC8
+diazoxide,ATP1A1
+diazoxide,ATP1A1
+diazoxide,CA1
+diazoxide,KCNJ11
+diazoxide,KCNMA1
+diazoxide,SLC12A3
+bezafibrate,APOA1
+bezafibrate,APOA2
+bezafibrate,APOB
+bezafibrate,APOE
+bezafibrate,APOE
+bezafibrate,APOE
+bezafibrate,APOE
+bezafibrate,CETP
+bezafibrate,CETP
+bezafibrate,CETP
+bezafibrate,CETP
+bezafibrate,CRAT
+bezafibrate,HBE1
+bezafibrate,HBG1
+bezafibrate,HBG2
+bezafibrate,HSD11B1
+bezafibrate,LPL
+bezafibrate,LPL
+bezafibrate,LPL
+bezafibrate,LPL
+bezafibrate,NR1I2
+bezafibrate,PPARA
+bezafibrate,PPARD
+bezafibrate,PPARD
+bezafibrate,PPARG
+bezafibrate,PPARG
+bezafibrate,PPARG
+bezafibrate,PPARG
+bezafibrate,PPARG
+bezafibrate,PPARG
+bezafibrate,PPARG
+bezafibrate,PPARG
+bezafibrate,PPARG
+bezafibrate,RXRA
+bezafibrate,RXRB
+bezafibrate,RXRG
+bezafibrate,SERPINE1
+bezafibrate,SERPINE1
+bezafibrate,SERPINE1
+bezafibrate,SERPINE1
+bezafibrate,SERPINE1
+bezafibrate,SERPINE1
+bezafibrate,SERPINE1
+bezafibrate,SERPINE1
+bezafibrate,SERPINE1
+bezafibrate,SERPINE1
+bezafibrate,UCP3
+pirenzepine,ADCY10
+pirenzepine,CHRM1
+pirenzepine,CHRM4
+pirenzepine,CHRM5
+SB-216763,CDK2
+SB-216763,GSK3A
+SB-216763,GSK3B
+SB-216763,GSK3B
+SB-216763,GSK3B
+SB-216763,GSK3B
+SB-216763,GSK3B
+SB-216763,GSK3B
+SB-216763,GSK3B
+BMS-599626,ERBB2
+doxofylline,ADORA2A
+doxofylline,ADORA2A
+doxofylline,ADORA2A
+doxofylline,ADRB2
+doxofylline,ADRB2
+doxofylline,ADRB2
+doxofylline,PDE2A
+SGX-523,MET
+clofibric-acid,PPARA
+brivanib,CYP3A4
+brivanib,FGFR2
+brivanib,FGFR3
+brivanib,FLT1
+brivanib,FLT4
+brivanib,KCNH2
+brivanib,KDR
+brivanib,PDGFRA
+brivanib,PDGFRA
+brivanib,PDGFRA
+brivanib,PDGFRA
+brivanib,PDGFRA
+brivanib,PDGFRA
+brivanib,STK35
+ACE2,Hypertensive disease
+ACE2,Endomyocardial Fibrosis
+ACE2,"Aortic Aneurysm, Abdominal"
+AGT,Hypertensive disease
+AGT,Hypotension
+AGT,Heart failure
+AGT,Congestive heart failure
+AGT,Left-Sided Heart Failure
+AGT,"Heart Failure, Right-Sided"
+AGT,Myocardial Failure
+AGT,Heart Decompensation
+AGT,Cardiovascular Diseases
+AGT,"Cardiomyopathies, Primary"
+AGT,"Myocardial Diseases, Secondary"
+AGT,Atherosclerosis
+AGT,Atherogenesis
+AGT,Myocardial Ischemia
+AGT,Endomyocardial Fibrosis
+AGT,Malignant Hypertension
+AGT,Thrombus
+AGT,"Aortic Aneurysm, Abdominal"
+AGT,Hyperemia
+AGT,Venous Engorgement
+AGT,Reactive Hyperemia
+AGT,Active Hyperemia
+CMA1,Hypertensive disease
+REN,Hypertensive disease
+REN,Hypotension
+REN,Heart failure
+REN,Congestive heart failure
+REN,Left-Sided Heart Failure
+REN,"Heart Failure, Right-Sided"
+REN,Myocardial Failure
+REN,Heart Decompensation
+REN,Malignant Hypertension
+CACNA1C,Hypertensive disease
+CACNA2D1,Hypertensive disease
+NR3C2,Heart failure
+NR3C2,Congestive heart failure
+NR3C2,Left-Sided Heart Failure
+NR3C2,"Heart Failure, Right-Sided"
+NR3C2,Myocardial Failure
+NR3C2,Heart Decompensation
+FGF1,Hypotension
+FGF1,Myocardial Ischemia
+CYP3A5,Thrombus
+INS,Hypertensive disease
+INS,Hypotension
+INS,Heart failure
+INS,Congestive heart failure
+INS,Left-Sided Heart Failure
+INS,"Heart Failure, Right-Sided"
+INS,Myocardial Failure
+INS,Heart Decompensation
+KCNJ1,Hypertensive disease
+PPARG,Hypertensive disease
+PPARG,Heart failure
+PPARG,Congestive heart failure
+PPARG,Left-Sided Heart Failure
+PPARG,"Heart Failure, Right-Sided"
+PPARG,Myocardial Failure
+PPARG,Heart Decompensation
+PPARG,Atherosclerosis
+PPARG,Atherogenesis
+TNF,Hypertensive disease
+TNF,Hypotension
+TNF,Heart failure
+TNF,Congestive heart failure
+TNF,Left-Sided Heart Failure
+TNF,"Heart Failure, Right-Sided"
+TNF,Myocardial Failure
+TNF,Heart Decompensation
+TNF,"Cardiomyopathies, Primary"
+TNF,"Myocardial Diseases, Secondary"
+TNF,Atherosclerosis
+TNF,Atherogenesis
+TNF,Myocardial Ischemia
+TNF,Thrombus
+SLC6A2,Hypertensive disease
+ALOX5,Atherosclerosis
+ALOX5,Atherogenesis
+PPARG,Hypertensive disease
+PPARG,Heart failure
+PPARG,Congestive heart failure
+PPARG,Left-Sided Heart Failure
+PPARG,"Heart Failure, Right-Sided"
+PPARG,Myocardial Failure
+PPARG,Heart Decompensation
+PPARG,Atherosclerosis
+PPARG,Atherogenesis
+KCNJ8,Myocardial Ischemia
+MAPK3,"Cardiomyopathies, Primary"
+MAPK3,"Myocardial Diseases, Secondary"
+ADRA1B,Hypotension
+ADRA2C,Heart failure
+ADRA2C,Congestive heart failure
+ADRA2C,Left-Sided Heart Failure
+ADRA2C,"Heart Failure, Right-Sided"
+ADRA2C,Myocardial Failure
+ADRA2C,Heart Decompensation
+DRD1,Hypotension
+GH1,Cardiovascular Diseases
+HTR1B,Hypotension
+HTR1D,Hypotension
+HTR2B,Hypertensive disease
+HTR2B,Heart failure
+HTR2B,Congestive heart failure
+HTR2B,Left-Sided Heart Failure
+HTR2B,"Heart Failure, Right-Sided"
+HTR2B,Myocardial Failure
+HTR2B,Heart Decompensation
+PRL,Hypotension
+PRL,Heart failure
+PRL,Congestive heart failure
+PRL,Left-Sided Heart Failure
+PRL,"Heart Failure, Right-Sided"
+PRL,Myocardial Failure
+PRL,Heart Decompensation
+ADRA1B,Hypotension
+ADRA2C,Heart failure
+ADRA2C,Congestive heart failure
+ADRA2C,Left-Sided Heart Failure
+ADRA2C,"Heart Failure, Right-Sided"
+ADRA2C,Myocardial Failure
+ADRA2C,Heart Decompensation
+ADRB1,Hypertensive disease
+ADRB1,Heart failure
+ADRB1,Congestive heart failure
+ADRB1,Left-Sided Heart Failure
+ADRB1,"Heart Failure, Right-Sided"
+ADRB1,Myocardial Failure
+ADRB1,Heart Decompensation
+ADRB1,Cardiovascular Diseases
+ADRB1,Myocardial Ischemia
+ADRB1,Endomyocardial Fibrosis
+ADRB1,Hyperemia
+ADRB1,Venous Engorgement
+ADRB1,Reactive Hyperemia
+ADRB1,Active Hyperemia
+ADRB2,"Cardiomyopathies, Primary"
+ADRB2,"Myocardial Diseases, Secondary"
+ADRB2,Myocardial Ischemia
+ADRB3,Heart failure
+ADRB3,Congestive heart failure
+ADRB3,Left-Sided Heart Failure
+ADRB3,"Heart Failure, Right-Sided"
+ADRB3,Myocardial Failure
+ADRB3,Heart Decompensation
+HRH1,Hypotension
+HRH1,Atherosclerosis
+HRH1,Atherogenesis
+SLC6A2,Hypertensive disease
+PTGER3,Thrombus
+RXRG,Myocardial Ischemia
+CACNA1C,Hypertensive disease
+SLC6A2,Hypertensive disease
+MAPK14,"Cardiomyopathies, Primary"
+MAPK14,"Myocardial Diseases, Secondary"
+MAPK14,Myocardial Ischemia
+TNF,Hypertensive disease
+TNF,Hypotension
+TNF,Heart failure
+TNF,Congestive heart failure
+TNF,Left-Sided Heart Failure
+TNF,"Heart Failure, Right-Sided"
+TNF,Myocardial Failure
+TNF,Heart Decompensation
+TNF,"Cardiomyopathies, Primary"
+TNF,"Myocardial Diseases, Secondary"
+TNF,Atherosclerosis
+TNF,Atherogenesis
+TNF,Myocardial Ischemia
+TNF,Thrombus
+CACNA1C,Hypertensive disease
+CACNA2D1,Hypertensive disease
+CYP3A5,Thrombus
+EDN1,Hypertensive disease
+EDN1,Hypotension
+EDN1,Heart failure
+EDN1,Congestive heart failure
+EDN1,Left-Sided Heart Failure
+EDN1,"Heart Failure, Right-Sided"
+EDN1,Myocardial Failure
+EDN1,Heart Decompensation
+EDN1,Cardiovascular Diseases
+EDN1,"Cardiomyopathies, Primary"
+EDN1,"Myocardial Diseases, Secondary"
+EDN1,Myocardial Ischemia
+ATP1A1,Hypertensive disease
+ATP1A1,Myocardial Ischemia
+SLC12A3,Hypertensive disease
+APOA1,Hypertensive disease
+APOB,Cardiovascular Diseases
+APOE,Hypertensive disease
+APOE,Cardiovascular Diseases
+APOE,Atherosclerosis
+APOE,Atherogenesis
+CETP,Hypertensive disease
+CETP,Cardiovascular Diseases
+CETP,Atherosclerosis
+CETP,Atherogenesis
+HSD11B1,Hypertensive disease
+LPL,Hypertensive disease
+LPL,Cardiovascular Diseases
+LPL,"Cardiomyopathies, Primary"
+LPL,"Myocardial Diseases, Secondary"
+PPARA,Hypertensive disease
+PPARD,"Cardiomyopathies, Primary"
+PPARD,"Myocardial Diseases, Secondary"
+PPARG,Hypertensive disease
+PPARG,Heart failure
+PPARG,Congestive heart failure
+PPARG,Left-Sided Heart Failure
+PPARG,"Heart Failure, Right-Sided"
+PPARG,Myocardial Failure
+PPARG,Heart Decompensation
+PPARG,Atherosclerosis
+PPARG,Atherogenesis
+RXRG,Myocardial Ischemia
+SERPINE1,Hypertensive disease
+SERPINE1,Heart failure
+SERPINE1,Congestive heart failure
+SERPINE1,Left-Sided Heart Failure
+SERPINE1,"Heart Failure, Right-Sided"
+SERPINE1,Myocardial Failure
+SERPINE1,Heart Decompensation
+SERPINE1,Atherosclerosis
+SERPINE1,Atherogenesis
+SERPINE1,Thrombus
+GSK3B,Hypertensive disease
+GSK3B,Heart failure
+GSK3B,Congestive heart failure
+GSK3B,Left-Sided Heart Failure
+GSK3B,"Heart Failure, Right-Sided"
+GSK3B,Myocardial Failure
+GSK3B,Heart Decompensation
+ADORA2A,Hypotension
+ADORA2A,"Cardiomyopathies, Primary"
+ADORA2A,"Myocardial Diseases, Secondary"
+ADRB2,"Cardiomyopathies, Primary"
+ADRB2,"Myocardial Diseases, Secondary"
+ADRB2,Myocardial Ischemia
+PPARA,Hypertensive disease
+KDR,Myocardial Ischemia
+PDGFRA,Heart failure
+PDGFRA,Congestive heart failure
+PDGFRA,Left-Sided Heart Failure
+PDGFRA,"Heart Failure, Right-Sided"
+PDGFRA,Myocardial Failure
+PDGFRA,Heart Decompensation

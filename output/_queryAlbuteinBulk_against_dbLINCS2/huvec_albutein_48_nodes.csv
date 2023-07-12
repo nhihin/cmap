@@ -1,0 +1,249 @@
+id,type,Class
+aliskiren,drug,NA
+PF-04620110,drug,NA
+quinine,drug,NA
+felodipine,drug,NA
+GDC-0834,drug,NA
+amlexanox,drug,NA
+flumazenil,drug,NA
+repaglinide,drug,NA
+chloroquine,drug,NA
+paroxetine,drug,NA
+balsalazide,drug,NA
+donitriptan,drug,NA
+Y-26763,drug,NA
+lamivudine,drug,NA
+FR-180204,drug,NA
+bromocriptine,drug,NA
+nortriptyline,drug,NA
+bimatoprost,drug,NA
+GSK-J1,drug,NA
+adapalene,drug,NA
+BAY-K8644,drug,NA
+MBX-2982,drug,NA
+capecitabine,drug,NA
+desvenlafaxine,drug,NA
+clonazepam,drug,NA
+TAK-715,drug,NA
+MLN-8054,drug,NA
+diltiazem,drug,NA
+diazoxide,drug,NA
+bezafibrate,drug,NA
+pirenzepine,drug,NA
+SB-216763,drug,NA
+BMS-599626,drug,NA
+doxofylline,drug,NA
+SGX-523,drug,NA
+clofibric-acid,drug,NA
+brivanib,drug,NA
+ACE2,gene,NA
+AGT,gene,NA
+CMA1,gene,NA
+CPA3,gene,NA
+CTSG,gene,NA
+CTSZ,gene,NA
+ENPEP,gene,NA
+REN,gene,NA
+DGAT1,gene,NA
+ABCB1,gene,NA
+CYP2D6,gene,NA
+GP9,gene,NA
+KCNB2,gene,NA
+KCNN4,gene,NA
+SLC29A4,gene,NA
+CACNA1C,gene,NA
+CACNA1D,gene,NA
+CACNA1H,gene,NA
+CACNA1S,gene,NA
+CACNA2D1,gene,NA
+CACNA2D2,gene,NA
+CACNB2,gene,NA
+CALM1,gene,NA
+CALM2,gene,NA
+CALM3,gene,NA
+CFTR,gene,NA
+NR3C2,gene,NA
+PDE1A,gene,NA
+PDE1B,gene,NA
+TNNC1,gene,NA
+TNNC2,gene,NA
+BTK,gene,NA
+FGF1,gene,NA
+IL3,gene,NA
+PPID,gene,NA
+S100A12,gene,NA
+S100A13,gene,NA
+S100A9,gene,NA
+GABRA2,gene,NA
+GABRA3,gene,NA
+GABRA4,gene,NA
+GABRA5,gene,NA
+GABRA6,gene,NA
+GABRB1,gene,NA
+GABRB2,gene,NA
+GABRB3,gene,NA
+GABRD,gene,NA
+GABRE,gene,NA
+GABRG1,gene,NA
+GABRG2,gene,NA
+GABRG3,gene,NA
+GABRP,gene,NA
+GABRQ,gene,NA
+ABCC8,gene,NA
+CYP2C8,gene,NA
+CYP3A5,gene,NA
+INS,gene,NA
+KCNJ1,gene,NA
+KCNJ11,gene,NA
+PPARG,gene,NA
+SLCO1B1,gene,NA
+GSTA2,gene,NA
+MAP2K1,gene,NA
+MAP2K2,gene,NA
+MRGPRX1,gene,NA
+NQO2,gene,NA
+SLC22A18,gene,NA
+TLR9,gene,NA
+TNF,gene,NA
+ADRBK1,gene,NA
+CHRM1,gene,NA
+CHRM4,gene,NA
+CHRM5,gene,NA
+CYP2B6,gene,NA
+GNG2,gene,NA
+GNG4,gene,NA
+GRK1,gene,NA
+SLC6A2,gene,NA
+SLC6A4,gene,NA
+ALOX5,gene,NA
+HTR1E,gene,NA
+HTR1F,gene,NA
+HTR5A,gene,NA
+ABCC9,gene,NA
+KCNJ8,gene,NA
+DCK,gene,NA
+MAPK3,gene,NA
+ADCY10,gene,NA
+ADRA1A,gene,NA
+ADRA1B,gene,NA
+ADRA1D,gene,NA
+ADRA2B,gene,NA
+ADRA2C,gene,NA
+DRD1,gene,NA
+DRD3,gene,NA
+DRD4,gene,NA
+GH1,gene,NA
+HTR1B,gene,NA
+HTR1D,gene,NA
+HTR2B,gene,NA
+HTR6,gene,NA
+HTR7,gene,NA
+PRL,gene,NA
+PRLR,gene,NA
+ADRB1,gene,NA
+ADRB2,gene,NA
+ADRB3,gene,NA
+HRH1,gene,NA
+KCNJ10,gene,NA
+PGRMC1,gene,NA
+PIK3CD,gene,NA
+SIGMAR1,gene,NA
+AKR1C3,gene,NA
+PTGER1,gene,NA
+PTGER3,gene,NA
+PTGFR,gene,NA
+PTGIR,gene,NA
+KDM6B,gene,NA
+UTY,gene,NA
+CRABP2,gene,NA
+RARA,gene,NA
+RARB,gene,NA
+RARG,gene,NA
+RXRA,gene,NA
+RXRB,gene,NA
+RXRG,gene,NA
+HCAR3,gene,NA
+CES2,gene,NA
+CES5A,gene,NA
+DPYD,gene,NA
+TYMP,gene,NA
+TYMS,gene,NA
+NR1I2,gene,NA
+TSPO,gene,NA
+MAPK14,gene,NA
+AURKA,gene,NA
+CACNG1,gene,NA
+CYP3A7,gene,NA
+EDN1,gene,NA
+HTR3A,gene,NA
+KCNA5,gene,NA
+ATP1A1,gene,NA
+CA1,gene,NA
+KCNMA1,gene,NA
+SLC12A3,gene,NA
+APOA1,gene,NA
+APOA2,gene,NA
+APOB,gene,NA
+APOE,gene,NA
+CETP,gene,NA
+CRAT,gene,NA
+HBE1,gene,NA
+HBG1,gene,NA
+HBG2,gene,NA
+HSD11B1,gene,NA
+LPL,gene,NA
+PPARA,gene,NA
+PPARD,gene,NA
+SERPINE1,gene,NA
+UCP3,gene,NA
+CDK2,gene,NA
+GSK3A,gene,NA
+GSK3B,gene,NA
+ERBB2,gene,NA
+ADORA2A,gene,NA
+PDE2A,gene,NA
+MET,gene,NA
+CYP3A4,gene,NA
+FGFR2,gene,NA
+FGFR3,gene,NA
+FLT1,gene,NA
+FLT4,gene,NA
+KCNH2,gene,NA
+KDR,gene,NA
+PDGFRA,gene,NA
+STK35,gene,NA
+Hypertensive disease,indication,Cardiovascular Diseases
+Endomyocardial Fibrosis,indication,Cardiovascular Diseases
+"Aortic Aneurysm, Abdominal",indication,Cardiovascular Diseases
+Hypotension,indication,Cardiovascular Diseases
+Heart failure,indication,Cardiovascular Diseases
+Congestive heart failure,indication,Cardiovascular Diseases
+Left-Sided Heart Failure,indication,Cardiovascular Diseases
+"Heart Failure, Right-Sided",indication,Cardiovascular Diseases
+Myocardial Failure,indication,Cardiovascular Diseases
+Heart Decompensation,indication,Cardiovascular Diseases
+Cardiovascular Diseases,indication,Cardiovascular Diseases
+"Cardiomyopathies, Primary",indication,Cardiovascular Diseases
+"Myocardial Diseases, Secondary",indication,Cardiovascular Diseases
+Atherosclerosis,indication,Cardiovascular Diseases
+Atherogenesis,indication,Cardiovascular Diseases
+Hypokalemia,indication,Nutritional and Metabolic Diseases
+Myocardial Ischemia,indication,Cardiovascular Diseases
+Malignant Hypertension,indication,Cardiovascular Diseases
+Thrombus,indication,Cardiovascular Diseases
+Alkalosis,indication,Nutritional and Metabolic Diseases
+Hyperemia,indication,Cardiovascular Diseases
+Venous Engorgement,indication,Cardiovascular Diseases
+Reactive Hyperemia,indication,Cardiovascular Diseases
+Active Hyperemia,indication,Cardiovascular Diseases
+Hypertriglyceridemia,indication,Nutritional and Metabolic Diseases
+Insulin Resistance,indication,Nutritional and Metabolic Diseases
+Insulin Sensitivity,indication,Nutritional and Metabolic Diseases
+Dyslipidemias,indication,Nutritional and Metabolic Diseases
+Dyslipoproteinemias,indication,Nutritional and Metabolic Diseases
+Hyperlipidemia,indication,Nutritional and Metabolic Diseases
+Lipidemias,indication,Nutritional and Metabolic Diseases
+"Hypobetalipoproteinemia, Familial, Apolipoprotein B",indication,Nutritional and Metabolic Diseases
+Familial hypobetalipoproteinemia,indication,Nutritional and Metabolic Diseases
+Acanthocytosis With Hypobetalipoproteinemia,indication,Nutritional and Metabolic Diseases
+Abdominal obesity metabolic syndrome,indication,Nutritional and Metabolic Diseases
